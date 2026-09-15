@@ -1,5 +1,5 @@
 # EdgeChess AI: NPU-powered Chess Assistant
-## Документация Этапа 1: Постановка задачи
+## Документация
 
 ### 1. Название проекта
 **EdgeChess AI: NPU-powered Chess Assistant** (Автономный шахматный помощник/противник на базе Edge AI).
