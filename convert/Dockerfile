@@ -1,14 +1,14 @@
-# Build: docker build -t edgechess-convert:py310 convert
-# Run with convert mounted at /work/convert. GPU and privileged mode are not needed.
+# Optional Ubuntu environment; dependencies come only from the uv project.
+FROM ghcr.io/astral-sh/uv:0.12.10 AS uv
 FROM ubuntu:22.04
-ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.10 python3-pip ca-certificates libgl1 libglib2.0-0 libgomp1 \
+    python3.10 python3.10-venv ca-certificates libgl1 libglib2.0-0 libgomp1 \
     && rm -rf /var/lib/apt/lists/*
-RUN python3.10 -m pip install --upgrade pip==25.0.1
-RUN python3.10 -m pip install torch==2.4.0 --index-url https://download.pytorch.org/whl/cpu
-COPY requirements-rknn.txt /tmp/requirements-rknn.txt
-RUN python3.10 -m pip install -r /tmp/requirements-rknn.txt && python3.10 -m pip check
-ENV OMP_NUM_THREADS=2 MKL_NUM_THREADS=2
+COPY --from=uv /uv /uvx /bin/
+# Keep the environment outside the source mount; never mount a host .venv.
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv UV_PYTHON_DOWNLOADS=never
 WORKDIR /work/convert
-ENTRYPOINT ["python3.10"]
+COPY pyproject.toml uv.lock .python-version ./
+RUN uv sync --locked --no-dev && uv pip check --python /opt/venv/bin/python
+ENTRYPOINT ["uv", "run", "--no-sync"]

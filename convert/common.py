@@ -31,7 +31,7 @@ def images(split="test"):
 
 
 def preprocess(path, size=640):
-    original = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_COLOR)
+    original = cv2.imread(str(path), cv2.IMREAD_COLOR)
     if original is None:
         raise ValueError(f"Cannot decode {path}")
     height, width = original.shape[:2]
@@ -117,10 +117,8 @@ def draw(image, detections, path):
                     (x1, max(12, y1 - 4)), cv2.FONT_HERSHEY_SIMPLEX, .4, (0, 80, 255), 1, cv2.LINE_AA)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    success, buffer = cv2.imencode(".jpg", canvas)
-    if not success:
+    if not cv2.imwrite(str(path), canvas):
         raise ValueError("Cannot encode annotated image")
-    buffer.tofile(path)
 
 
 def compare_detections(reference, actual, min_iou=.9):

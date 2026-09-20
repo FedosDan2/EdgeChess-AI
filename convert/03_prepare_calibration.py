@@ -1,4 +1,4 @@
-"""Create lossless, already-letterboxed calibration images on the Windows PC.
+"""Create lossless, already-letterboxed calibration images.
 
 RKNN calibration must see the same geometry/colors as runtime inference.
 The list uses paths relative to its own directory (data), as required by Toolkit2.
@@ -20,10 +20,8 @@ def main():
         if pixel_hash in test_hashes:
             raise ValueError(f"Calibration image duplicates test pixels: {source}")
         path = output / (source.stem + ".png")
-        success, encoded = cv2.imencode(".png", cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
-        if not success:
+        if not cv2.imwrite(str(path), cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)):
             raise ValueError(f"Cannot encode {source}")
-        encoded.tofile(path)
         paths.append(path.relative_to(ROOT).as_posix())
         records.append({"source": source.relative_to(ROOT).as_posix(), "source_sha256": sha256(source),
                         "prepared": paths[-1], "sha256": sha256(path), "pixel_sha256": pixel_hash})

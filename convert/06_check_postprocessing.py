@@ -21,7 +21,7 @@ from ultralytics.utils.ops import non_max_suppression, scale_boxes
 def main():
     metadata = json.loads((ARTIFACTS / "model.json").read_text(encoding="utf-8"))
     # Cover non-square inputs; source Kaggle samples happen to be square.
-    with tempfile.TemporaryDirectory(dir=ARTIFACTS) as directory:
+    with tempfile.TemporaryDirectory() as directory:
         for h, w in [(720, 1280), (1280, 720), (517, 883)]:
             image = np.random.default_rng(42).integers(0, 256, size=(h, w, 3), dtype=np.uint8)
             path = Path(directory) / "input.png"

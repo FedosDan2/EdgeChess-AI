@@ -1,3 +1,5 @@
 *
 !Dockerfile
-!requirements-rknn.txt
+!pyproject.toml
+!uv.lock
+!.python-version
