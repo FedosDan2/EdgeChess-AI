@@ -1,0 +1,7 @@
+# Python 3.10 on Linux x86_64. Toolkit2 2.3.2 requires torch <=2.4.0.
+rknn-toolkit2==2.3.2
+numpy==1.26.4
+onnx==1.16.1
+onnxruntime==1.20.1
+opencv-python==4.10.0.84
+protobuf==4.25.4
