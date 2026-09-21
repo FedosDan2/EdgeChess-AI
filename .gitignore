@@ -6,3 +6,7 @@ artifacts/
 __pycache__/
 *.tar
 *.pt
+node_modules/
+dist/
+.pytest_cache/
+web/benchmark.json

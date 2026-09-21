@@ -34,6 +34,11 @@ def preprocess(path, size=640):
     original = cv2.imread(str(path), cv2.IMREAD_COLOR)
     if original is None:
         raise ValueError(f"Cannot decode {path}")
+    return preprocess_image(original, size)
+
+
+def preprocess_image(original, size=640):
+    """Same letterbox for files and live BGR frames; no disk round trip."""
     height, width = original.shape[:2]
     ratio = min(size / height, size / width)
     resized = cv2.resize(original, (round(width * ratio), round(height * ratio)), interpolation=cv2.INTER_LINEAR)
