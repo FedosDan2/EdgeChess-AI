@@ -1,3 +1,7 @@
 /datasets
 /yolo_chess_dataset_final
 /yolo_chess_dataset
+*.py
+*.ipynb
+/weights
+__pycache__
