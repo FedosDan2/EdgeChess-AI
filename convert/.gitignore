@@ -1,7 +1,0 @@
-.venv/
-.python/
-.cache/
-data/
-artifacts/
-__pycache__/
-*.tar
