@@ -1,0 +1,6 @@
+__pycache__/
+data/
+runs/
+py_files/
+*.png
+*.jpeg
