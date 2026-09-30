@@ -4,7 +4,7 @@ import cv2
 from pipeline.pipeline import ChessPipeline
 
 WEIGHTS = Path(
-    "/EdgeChess-AI/CV/weights"
+    "/home/fedosdan2/Study/EdgeChess-AI/CV/weights"
 )
 
 pipeline = ChessPipeline(

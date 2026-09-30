@@ -1,12 +1,63 @@
-# EdgeChess AI: NPU-powered Chess Assistant
+## Подготовка к запуску
+# Chess CV Pipeline
 
-Рабочие компоненты репозитория:
+Пайплайн для определения шахматной доски, фигур и построения FEN-строки.
 
-- [Конвертация и квантование: Python 3.10 + uv, Linux](convert/README.md)
-- [Веб-интерфейс: 3D-доска, виртуальная камера и ONNX CPU](web/README.md)
+## 1. Установка
 
-Ниже — исходный проектный набросок. Инструкции запуска реализованных компонентов
-находятся по ссылкам выше.
+```bash
+pip install ultralytics opencv-python
+```
+
+Для CUDA установите подходящую версию PyTorch отдельно.
+
+## 2. Веса
+
+Поместите веса в:
+
+```text
+CV/pipeline/weights/
+├── best_board_detect.pt
+└── best_board_and_pieces.pt
+```
+
+## 3. Запуск
+
+Из корня проекта:
+
+```bash
+python3 CV/main.py
+```
+
+В `CV/main.py` укажите изображение:
+
+```python
+image = cv2.imread("/path/to/image.png")
+```
+
+И ориентацию доски:
+
+```python
+orientation = 1  # белые снизу
+orientation = 0  # чёрные снизу
+```
+
+## 4. Результат
+
+Пайплайн возвращает:
+
+```python
+board, pieces, state, fen = pipeline.process(
+    image,
+    orientation=orientation
+)
+```
+
+* `board` — обнаруженная доска
+* `pieces` — найденные фигуры и их позиции
+* `state` — состояние доски 8×8
+* `fen` — итоговая FEN-строка
+
 
 ## Документация
 
