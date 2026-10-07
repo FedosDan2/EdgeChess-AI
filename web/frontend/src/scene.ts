@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { Chess, type Square, type PieceSymbol, type Color } from "chess.js";
 
 // Procedural solid pieces: no remote assets or runtime CDN dependencies.
@@ -121,6 +122,12 @@ export class BoardScene {
   readonly controls: OrbitControls;
   readonly pieces = new THREE.Group();
   readonly markers = new THREE.Group();
+  mode: "2d" | "3d" = "3d";
+  theme = "wood";
+  shape = "classic";
+  private imported: Record<string, THREE.Object3D> = {};
+  private tabletop: THREE.Mesh | null = null;
+  private textures = new Map<string, THREE.Texture>();
   private ray = new THREE.Raycaster();
   private selected: Square | null = null;
   private down = { x: 0, y: 0 };
@@ -165,12 +172,20 @@ export class BoardScene {
     base.position.y = -0.2;
     base.receiveShadow = true;
     this.scene.add(base);
+    const table = new THREE.Mesh(
+      new THREE.BoxGeometry(24, 0.35, 20),
+      new THREE.MeshStandardMaterial({ color: 0x8b684b, roughness: 0.85 }),
+    );
+    table.position.y = -0.55;
+    table.receiveShadow = true;
+    this.tabletop = table;
+    this.scene.add(table);
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(200, 200),
       new THREE.MeshStandardMaterial({ color: 0xcdd4cd, roughness: 1 }),
     );
     floor.rotation.x = -Math.PI / 2;
-    floor.position.y = -0.39;
+    floor.position.y = -0.76;
     floor.receiveShadow = true;
     this.scene.add(floor);
     for (let rank = 0; rank < 8; rank++)
@@ -225,10 +240,101 @@ export class BoardScene {
     this.camera.aspect = host.clientWidth / host.clientHeight;
     this.camera.updateProjectionMatrix();
   }
+  setAppearance(mode: "2d" | "3d", theme: string, shape: string, light: number) {
+    this.mode = mode; this.theme = theme; this.shape = shape;
+    const palettes: Record<string, number[]> = {
+      wood: [0xeadcc3, 0x333b39, 0x73816b, 0xede6d5, 0x8b684b],
+      marble: [0xf3f1eb, 0x202126, 0x494b51, 0xe1dfd7, 0x8c8d91],
+      walnut: [0xcfa66b, 0x342418, 0x72533d, 0xd7b994, 0x503627],
+    };
+    const colors = palettes[theme] || palettes.wood;
+    this.tiles.forEach((tile, i) => {
+      const material = (tile as THREE.Mesh).material as THREE.MeshStandardMaterial;
+      const rank = Math.floor(i / 8), file = i % 8;
+      material.color.setHex(colors[(rank + file) % 2 === 0 ? 2 : 3]);
+    });
+    if (this.tabletop) {
+      (this.tabletop.material as THREE.MeshStandardMaterial).color.setHex(colors[4]);
+      this.tabletop.visible = mode === "3d";
+    }
+    for (const object of this.scene.children) {
+      if (object instanceof THREE.DirectionalLight) object.intensity = light;
+    }
+    this.controls.enabled = mode === "3d";
+    this.home(); this.rebuild();
+  }
+  async loadPieceSet(buffer: ArrayBuffer) {
+    const gltf = await new GLTFLoader().parseAsync(buffer, "");
+    const models: Record<string, THREE.Object3D> = {};
+    for (const color of ["w", "b"]) for (const type of ["P", "N", "B", "R", "Q", "K"]) {
+      const name = color + type;
+      const object = gltf.scene.getObjectByName(name);
+      if (!object) throw new Error(`В GLB отсутствует объект ${name}`);
+      const clone = object.clone(true);
+      clone.traverse((node) => {
+        if (node instanceof THREE.Mesh) {
+          node.geometry = node.geometry.clone();
+          node.material = Array.isArray(node.material) ? node.material.map(m => m.clone()) : node.material.clone();
+          node.castShadow = node.receiveShadow = true;
+        }
+      });
+      clone.position.set(0, 0, 0);
+      const box = new THREE.Box3().setFromObject(clone), size = box.getSize(new THREE.Vector3());
+      if (Math.max(size.x,size.z) <= 0) throw new Error("Пустая геометрия GLB");
+      const scale = .75 / Math.max(size.x,size.z);
+      const holder = new THREE.Group(); holder.add(clone);
+      clone.position.sub(box.getCenter(new THREE.Vector3()));
+      clone.position.y += size.y / 2;
+      holder.scale.setScalar(scale);
+      models[name] = holder;
+    }
+    for (const model of Object.values(this.imported)) this.clear(model as THREE.Group);
+    this.imported = models;
+    this.shape = "glb"; this.rebuild();
+  }
+  private makePiece(type: PieceSymbol, color: Color) {
+    if (this.mode === "2d") {
+      const key = color + type.toUpperCase();
+      let texture = this.textures.get(key);
+      if (!texture) {
+        texture = new THREE.TextureLoader().load(`/pieces/cburnett/${key}.svg`);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        this.textures.set(key, texture);
+      }
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(.88,.88), new THREE.MeshBasicMaterial({ map: texture, transparent: true }));
+      mesh.rotation.x = -Math.PI / 2;
+      const group = new THREE.Group(); group.add(mesh); return group;
+    }
+    const key = color + type.toUpperCase();
+    if (this.shape === "glb" && this.imported[key]) {
+      const object = this.imported[key].clone(true);
+      object.traverse((node) => {
+        if (node instanceof THREE.Mesh) {
+          node.geometry = node.geometry.clone();
+          node.material = Array.isArray(node.material) ? node.material.map(m => m.clone()) : node.material.clone();
+        }
+      });
+      return object;
+    }
+    const object = piece(type, color);
+    const colors = this.theme === "marble" ? [0xf3f1eb,0x202126] : this.theme === "walnut" ? [0xcfa66b,0x342418] : [0xeadcc3,0x333b39];
+    object.traverse(node => {
+      if (node instanceof THREE.Mesh) (node.material as THREE.MeshStandardMaterial).color.setHex(colors[color === "w" ? 0 : 1]);
+    });
+    if (this.shape === "slim") object.scale.set(.8,1.2,.8);
+    return object;
+  }
   home() {
-    this.camera.position.set(9, 11, 13);
+    const damping = this.controls.enableDamping;
+    this.controls.enableDamping = false;
+    this.controls.update(); // Consume the remaining drag before restoring the view.
+    this.camera.up.set(0, this.mode === "2d" ? 0 : 1, this.mode === "2d" ? -1 : 0);
+    if (this.mode === "2d") this.camera.position.set(0,16,0.001);
+    else this.camera.position.set(9, 11, 13);
     this.controls.target.set(0, 0.2, 0);
-    this.controls.update();
+    if (this.mode === "3d") this.controls.update();
+    else this.camera.lookAt(this.controls.target);
+    this.controls.enableDamping = damping;
   }
   private clear(group: THREE.Group) {
     group.traverse((object) => {
@@ -249,7 +355,7 @@ export class BoardScene {
     for (const row of this.chess.board())
       for (const p of row)
         if (p) {
-          const mesh = piece(p.type, p.color);
+          const mesh = this.makePiece(p.type, p.color);
           mesh.position.set(
             p.square.charCodeAt(0) - 97 - 3.5,
             0.035,
@@ -300,7 +406,7 @@ export class BoardScene {
     );
   }
   render() {
-    this.controls.update();
+    if (this.mode === "3d") this.controls.update();
     this.renderer.render(this.scene, this.camera);
   }
   async snapshot() {

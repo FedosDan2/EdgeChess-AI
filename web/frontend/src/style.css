@@ -198,7 +198,7 @@ h1 {
   overflow: hidden;
   background: #dce1dc;
 }
-#viewport > canvas:not(#overlay) {
+#viewport > canvas:not(#overlay):not(#still-frame) {
   display: block;
   width: 100%;
   height: 100%;
@@ -608,3 +608,10 @@ footer {
     display: none;
   }
 }
+
+.card > label {display:flex; justify-content:space-between; align-items:center; gap:.75rem; margin:.7rem 0; font-size:.8rem;}
+.card select,.card input {max-width:60%; min-width:0;}
+#recognized-placement,#recognized-fen {display:block; overflow-wrap:anywhere; font-size:.8rem;}
+
+#still-frame { position:absolute; inset:0; width:100%; height:100%; object-fit:fill; z-index:1; pointer-events:none; }
+#still-frame[hidden] { display:none; }

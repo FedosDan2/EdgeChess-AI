@@ -13,12 +13,13 @@ import struct
 from time import perf_counter
 
 import anyio
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
 
 from .inference import Detector
 
 MAX_FRAME_BYTES = 2 * 1024 * 1024
+MAX_IMAGE_BYTES = 16 * 1024 * 1024
 
 
 class LatestFrame:
@@ -44,6 +45,8 @@ def create_app(detector_factory=Detector):
             app.state.detector = await asyncio.get_running_loop().run_in_executor(executor, detector_factory)
             yield
         finally:
+            if hasattr(app.state, "detector") and hasattr(app.state.detector, "close"):
+                await asyncio.get_running_loop().run_in_executor(executor, app.state.detector.close)
             executor.shutdown(wait=True, cancel_futures=True)
 
     app = FastAPI(title="EdgeChess virtual camera", lifespan=lifespan)
@@ -66,6 +69,7 @@ def create_app(detector_factory=Detector):
         received = processed = 0
         started = perf_counter()
         worker = None
+        orientation = ws.query_params.get("orientation", "white")
 
         async def send(message):
             async with send_lock:
@@ -77,7 +81,8 @@ def create_app(detector_factory=Detector):
                 frame_id, jpeg, arrival = await slot.queue.get()
                 def infer():
                     wait_ms = (perf_counter() - arrival) * 1000
-                    result = app.state.detector.predict(jpeg)
+                    result = (app.state.detector.predict(jpeg, orientation) if hasattr(app.state.detector, "configure")
+                              else app.state.detector.predict(jpeg))
                     result["timings"]["queue_ms"] = wait_ms
                     return result
                 try:
@@ -115,6 +120,17 @@ def create_app(detector_factory=Detector):
         receiver = None
         try:
             await ws.accept()
+            if hasattr(app.state.detector, "configure"):
+                try:
+                    if orientation not in ("white", "black"):
+                        raise ValueError("Invalid orientation")
+                    await asyncio.get_running_loop().run_in_executor(app.state.executor,
+                        app.state.detector.configure, ws.query_params.get("profile", "2d"),
+                        ws.query_params.get("backend", "onnx"))
+                except (ValueError, OSError, ImportError, RuntimeError) as exc:
+                    await send({"type": "configuration_error", "message": str(exc)})
+                    await ws.close(code=1008)
+                    return
             await send({"type": "ready", **app.state.detector.describe()})
             worker = asyncio.create_task(consume())
             receiver = asyncio.create_task(receive())
@@ -137,6 +153,31 @@ def create_app(detector_factory=Detector):
                     await asyncio.get_running_loop().run_in_executor(app.state.executor, lambda: None)
                 finally:
                     app.state.busy = False
+
+    @app.post("/api/analyze")
+    async def analyze(request: Request):
+        if app.state.busy:
+            raise HTTPException(409, "Close the live stream before analyzing a saved frame")
+        app.state.busy=True
+        try:
+            if int(request.headers.get("content-length", "0")) > MAX_IMAGE_BYTES:
+                raise HTTPException(413, "JPEG exceeds 16 MiB")
+            jpeg=await request.body()
+            if len(jpeg)>MAX_IMAGE_BYTES:
+                raise HTTPException(413, "JPEG exceeds 16 MiB")
+            def run():
+                detector=app.state.detector
+                detector.configure(request.query_params.get("profile","2d"),request.query_params.get("backend","onnx"))
+                result=detector.predict(jpeg,request.query_params.get("orientation","white"))
+                return {**result,"configuration":detector.describe()}
+            return await asyncio.get_running_loop().run_in_executor(app.state.executor,run)
+        except (ValueError, OSError, ImportError, RuntimeError) as exc:
+            raise HTTPException(422,str(exc)) from exc
+        finally:
+            # Drain native inference even if HTTP disconnect cancels the request.
+            with anyio.CancelScope(shield=True):
+                await asyncio.get_running_loop().run_in_executor(app.state.executor,lambda:None)
+                app.state.busy=False
 
     dist = Path(__file__).resolve().parents[1] / "frontend/dist"
     if dist.exists():

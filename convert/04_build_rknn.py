@@ -9,6 +9,7 @@ import importlib.metadata
 import json
 import os
 import platform
+from pathlib import Path
 import time
 
 import numpy as np
@@ -23,34 +24,38 @@ def check(status, operation):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--model", choices=("board2d", "pieces2d", "chess3d"), required=True)
     parser.add_argument("--precision", choices=("fp16", "int8"), required=True)
+    parser.add_argument("--algorithm", choices=("normal","mmse","kl_divergence"), default="normal")
     parser.add_argument("--limit", type=int, default=0, help="0: all selected test images")
     args = parser.parse_args()
-    os.chdir(ROOT)
-    manifest = json.loads((ARTIFACTS / "model.json").read_text(encoding="utf-8"))
-    baseline = json.loads((ARTIFACTS / "pytorch_predictions.json").read_text(encoding="utf-8"))
-    model_path = ARTIFACTS / "yolov8s_split.onnx"
+    output = ARTIFACTS / args.model
+    manifest = json.loads((output / "model.json").read_text(encoding="utf-8"))
+    baseline = json.loads((output / "pytorch_predictions.json").read_text(encoding="utf-8"))
+    model_path = output / "model_split.onnx"
     if sha256(model_path) != manifest["split_onnx_sha256"]:
         raise ValueError("ONNX hash differs from the verified model")
     quantized = args.precision == "int8"
-    out = ARTIFACTS / f"rknn_{args.precision}"
+    out = output / f"rknn_{args.precision}"
     out.mkdir(exist_ok=True)
+    os.chdir(out)
     rknn = RKNN(verbose=True, verbose_file=str(out / "build.log"))
     started = time.perf_counter()
     try:
         print("Config: rk3588, RGB uint8, normalization inside RKNN: divide by 255", flush=True)
         check(rknn.config(target_platform="rk3588", mean_values=[[0, 0, 0]],
-                          std_values=[[255, 255, 255]]), "config")
+                          std_values=[[255, 255, 255]], quantized_algorithm=args.algorithm), "config")
         check(rknn.load_onnx(model=str(model_path)), "load_onnx")
         kwargs = {"do_quantization": quantized}
         if quantized:
-            kwargs["dataset"] = str(ROOT / "data/calibration.txt")
+            kwargs["dataset"] = str(ROOT / "data" / args.model / "calibration.txt")
         check(rknn.build(**kwargs), "build")
         rknn_path = out / "model.rknn"
         check(rknn.export_rknn(str(rknn_path)), "export_rknn")
         build_seconds = time.perf_counter() - started
         check(rknn.init_runtime(), "init_runtime simulator")
-        selected = images()[:args.limit] if args.limit else images()
+        selected = [Path(p) for p in manifest["verification_images"]]
+        selected = selected[:args.limit] if args.limit else selected
         rows = []
         for path in selected:
             if sha256(path) != baseline[path.name]["image_sha256"]:
@@ -72,7 +77,7 @@ def main():
         precision = matched / actual_count if actual_count else 0
         # These thresholds check conversion drift, not the model's task accuracy.
         passed = bool(rows) and reference_count > 0 and recall >= .95 and precision >= .95
-        save_json(out / "comparison.json", {"precision": args.precision, "passed": passed,
+        save_json(out / "comparison.json", {"precision": args.precision, "passed": passed, "quantization_algorithm":args.algorithm,
             "note": "Simulator only. Agreement with PyTorch at IoU>=0.9, confidence>=0.25; NOT ground-truth mAP.",
             "agreement_recall": recall, "agreement_precision": precision, "matched": matched,
             "reference_count": reference_count, "actual_count": actual_count,

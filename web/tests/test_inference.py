@@ -19,8 +19,9 @@ def test_landscape_letterbox_maps_back():
     assert detection["xyxy"] == pytest.approx([0, 0, 960, 720])
 
 
-@pytest.mark.skipif(not (ROOT / "convert/artifacts/yolov8s.onnx").exists(), reason="Export model first")
-def test_real_model_jpeg_and_invalid_image():
+@pytest.mark.skipif(not (ROOT / "convert/artifacts/chess3d/model.onnx").exists(), reason="Export model first")
+def test_real_model_jpeg_and_invalid_image(monkeypatch):
+    monkeypatch.setenv("EDGECHESS_PROFILE","3d")
     detector = Detector()
     ok, jpeg = cv2.imencode('.jpg', np.zeros((720, 960, 3), dtype=np.uint8))
     assert ok
@@ -29,3 +30,4 @@ def test_real_model_jpeg_and_invalid_image():
     assert result["timings"]["processing_ms"] >= result["timings"]["inference_ms"] > 0
     with pytest.raises(Exception):
         detector.predict(b"invalid jpeg")
+    detector.close()

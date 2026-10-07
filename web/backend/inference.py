@@ -1,73 +1,76 @@
-"""CPU backend: reuse the conversion pipeline's letterbox and class-aware NMS."""
+"""JPEG adapter around the shared chess pipelines."""
+
 import io
-import json
 import os
 from pathlib import Path
 import sys
 from time import perf_counter
-
 import cv2
 import numpy as np
-import onnxruntime as ort
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from convert.common import postprocess, preprocess_image, sha256  # noqa: E402
+from convert.common import preprocess_image  # public to existing benchmark/tests
+from vision.pipeline import Pipeline
+from vision.config import PROFILES, BACKENDS
 
 
 class Detector:
     def __init__(self):
-        self.path = Path(os.getenv("EDGECHESS_MODEL", ROOT / "convert/artifacts/yolov8s.onnx"))
-        metadata_path = Path(os.getenv("EDGECHESS_METADATA", ROOT / "convert/artifacts/model.json"))
-        self.metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-        self.digest = sha256(self.path)
-        if self.digest != self.metadata["onnx_sha256"]:
-            raise ValueError("ONNX hash differs from model.json; export matching artifacts first")
-        self.names = self.metadata["names"]
-        self.size = self.metadata["imgsz"]
+        self.directory = Path(
+            os.getenv("EDGECHESS_ARTIFACTS", ROOT / "convert/artifacts")
+        )
         self.threads = int(os.getenv("EDGECHESS_THREADS", "4"))
-        if self.threads < 1:
-            raise ValueError("EDGECHESS_THREADS must be positive")
-        options = ort.SessionOptions()
-        options.intra_op_num_threads = self.threads
-        options.inter_op_num_threads = 1
-        options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-        self.session = ort.InferenceSession(str(self.path), sess_options=options,
-                                            providers=["CPUExecutionProvider"])
-        self.input_name = self.session.get_inputs()[0].name
-        if self.session.get_inputs()[0].shape != [1, 3, self.size, self.size]:
-            raise ValueError("Expected static batch-1 NCHW ONNX")
-        self.warmup_runs = 5
-        for _ in range(self.warmup_runs):
-            self.run_tensor(np.zeros((1, 3, self.size, self.size), dtype=np.float32))
+        self.confidence = float(os.getenv("EDGECHESS_CONFIDENCE", "0.5"))
+        self.pipeline = None
+        self.profile = None
+        self.backend = None
+        self.configure(
+            os.getenv("EDGECHESS_PROFILE", "3d"), os.getenv("EDGECHESS_BACKEND", "onnx")
+        )
 
-    def run_tensor(self, tensor):
-        return self.session.run(None, {self.input_name: tensor})[0]
+    def configure(self, profile, backend):
+        if profile not in PROFILES or backend not in BACKENDS:
+            raise ValueError("Unknown pipeline or backend")
+        if self.pipeline is not None and (profile, backend) == (
+            self.profile,
+            self.backend,
+        ):
+            return
+        self.close()
+        self.pipeline = Pipeline(
+            profile, backend, self.directory, self.threads, self.confidence
+        )
+        self.profile, self.backend = profile, backend
+
+    def close(self):
+        if self.pipeline is not None:
+            self.pipeline.close()
+        self.pipeline = None
 
     def describe(self):
-        return {"model": self.path.name, "sha256": self.digest, "provider": "CPUExecutionProvider",
-                "threads": self.threads, "input_size": self.size, "classes": self.names,
-                "warmup_runs": self.warmup_runs, "confidence": .25, "nms_iou": .7}
+        return (
+            self.pipeline.describe()
+            if self.pipeline
+            else {
+                "status": "unavailable",
+                "profile": self.profile,
+                "backend": self.backend,
+            }
+        )
 
-    def predict(self, jpeg):
+    def predict(self, jpeg, orientation="white"):
         start = perf_counter()
-        # Check dimensions before allocating the decoded pixel buffer.
         with Image.open(io.BytesIO(jpeg)) as header:
-            width, height = header.size
-            if header.format != "JPEG" or not (1 <= width <= 1920 and 1 <= height <= 1920):
-                raise ValueError("Expected JPEG up to 1920x1920")
+            w, h = header.size
+            if header.format != "JPEG" or not (1 <= w <= 4096 and 1 <= h <= 4096):
+                raise ValueError("Expected JPEG up to 4096x4096")
         image = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
         if image is None:
             raise ValueError("Cannot decode JPEG")
-        _, _, tensor, info = preprocess_image(image, self.size)
-        prepared = perf_counter()
-        prediction = self.run_tensor(tensor)
-        inferred = perf_counter()
-        detections = postprocess(prediction, info, self.names)
-        ended = perf_counter()
-        return {"width": width, "height": height, "detections": detections,
-                "timings": {"preprocess_ms": (prepared-start)*1000,
-                            "inference_ms": (inferred-prepared)*1000,
-                            "postprocess_ms": (ended-inferred)*1000,
-                            "processing_ms": (ended-start)*1000}}
+        decoded = perf_counter()
+        result = self.pipeline.predict(image, orientation)
+        result["timings"]["preprocess_ms"] += (decoded - start) * 1000
+        result["timings"]["processing_ms"] = (perf_counter() - start) * 1000
+        return result

@@ -4,10 +4,30 @@ import { percentile, scaleBox } from "./metrics.mjs";
 import type { PieceSymbol } from "chess.js";
 
 document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
-  <header><a class="brand" href="/" aria-label="EdgeChess"><span class="brand-icon">♞</span> EDGE<span>CHESS</span><small>VISION LAB</small></a><div class="header-status"><span class="dot" id="status-dot"></span><span id="status">Подключение…</span><span class="tag">ONNX / CPU</span></div></header>
+  <header><a class="brand" href="/" aria-label="EdgeChess"><span class="brand-icon">♞</span> EDGE<span>CHESS</span><small>VISION LAB</small></a><div class="header-status"><span class="dot" id="status-dot"></span><span id="status">Подключение…</span><span class="tag" id="backend-tag">ONNX / CPU</span></div></header>
   <main><section class="intro"><div><p class="eyebrow">ВИРТУАЛЬНАЯ КАМЕРА · 01</p><h1>Доска в поле зрения.</h1><p class="subtitle">Меняйте позицию и ракурс. Наблюдайте за распознаванием в реальном времени.</p></div><span class="live-badge"><i></i> LIVE INFERENCE</span></section>
-  <div class="workspace"><section class="board-panel"><div class="panel-heading"><span><i class="small-dot"></i> Интерактивная сцена</span><span id="turn">Ход белых</span></div><div id="viewport"><canvas id="overlay" aria-label="Рамки распознавания"></canvas><div class="scene-chip">CAM 01 <span>960 × 720</span></div><div id="scene-message" role="status"></div></div><div class="board-toolbar"><label class="checkbox"><input id="boxes" type="checkbox" checked><span>Рамки и классы</span></label><button id="home" class="quiet">↺ Ракурс</button><span class="toolbar-hint">Потяните для вращения · колесо для масштаба</span></div><div class="position"><label for="fen">ПОЗИЦИЯ / FEN</label><div class="fen-row"><input id="fen" spellcheck="false" aria-label="Позиция FEN"><button id="apply">Применить</button></div><div class="position-actions"><button id="reset" class="quiet">Начальная позиция</button><label>Превращение пешки <select id="promotion"><option value="q">Ферзь</option><option value="r">Ладья</option><option value="b">Слон</option><option value="n">Конь</option></select></label></div><p id="move-help">Нажмите на фигуру, затем на клетку назначения. Вы играете за обе стороны.</p></div></section>
-  <aside><section class="card"><div class="card-title"><h2>Производительность</h2><span class="tag">LIVE</span></div><div class="hero-metric"><strong id="fps">—</strong><span>кадров/с<br><small>обработано · окно 5 с</small></span><svg id="spark" viewBox="0 0 260 42" preserveAspectRatio="none"><polyline points="" /></svg></div><div class="metric-grid"><div><span>Инференс · p50</span><strong id="infer">—</strong></div><div><span>Инференс · p95</span><strong id="p95">—</strong></div><div><span>Возраст · p50</span><strong id="age">—</strong></div><div><span>Возраст · p95</span><strong id="age95">—</strong></div></div><div class="timing-list"><div><span>Подготовка / NMS</span><b id="stages">—</b></div><div><span>Ожидание обработки</span><b id="queue">—</b></div><div><span>Отправлено / заменено сервером</span><b id="counts">0 / 0</b></div><div><span>Пропущено до отправки</span><b id="skipped">0</b></div><div><span>Отрисовка / захват, FPS</span><b id="render-fps">—</b></div></div><label class="capture-label" for="capture-fps">Частота виртуальной камеры <select id="capture-fps"><option value="10">10 FPS</option><option value="15">15 FPS</option><option value="30" selected>30 FPS</option><option value="60">60 FPS</option></select></label><p class="note">Свежие кадры заменяют ожидающие. Рамки сохраняются между результатами и могут отставать при движении.</p></section>
+  <div class="workspace"><section class="board-panel"><div class="panel-heading"><span><i class="small-dot"></i> Интерактивная сцена</span><span id="turn">Ход белых</span></div><div id="viewport"><canvas id="still-frame" hidden></canvas><canvas id="overlay" aria-label="Рамки распознавания"></canvas><div class="scene-chip">CAM 01 <span>960 × 720</span></div><div id="scene-message" role="status"></div></div><div class="board-toolbar"><label class="checkbox"><input id="boxes" type="checkbox" checked><span>Рамки и классы</span></label><button id="home" class="quiet">↺ Сбросить ракурс</button><span class="toolbar-hint">Потяните для вращения · колесо для масштаба</span></div><div class="position"><label for="fen">ПОЗИЦИЯ / FEN</label><div class="fen-row"><input id="fen" spellcheck="false" aria-label="Позиция FEN"><button id="apply">Применить</button></div><div class="position-actions"><button id="reset" class="quiet">Начальная позиция</button><label>Превращение пешки <select id="promotion"><option value="q">Ферзь</option><option value="r">Ладья</option><option value="b">Слон</option><option value="n">Конь</option></select></label></div><p id="move-help">Нажмите на фигуру, затем на клетку назначения. Вы играете за обе стороны.</p></div></section>
+  <aside><section class="card"><h2>Сцена и обработка</h2>
+<label>Источник <select id="source-mode"><option value="3d">3D-сцена</option><option value="2d">2D-доска</option></select></label>
+<label>Пайплайн <select id="profile"><option value="3d">3D · углы и фигуры</option><option value="2d">2D · доска и обрезка</option></select></label>
+<label>Исполнитель <select id="backend"><option value="onnx">ONNX CPU</option><option value="rknn_fp16">RKNN FP16 · NPU</option><option value="rknn_int8">RKNN INT8 · NPU</option></select></label>
+<label>Ориентация 2D <select id="orientation"><option value="white">Белые снизу</option><option value="black">Чёрные снизу</option></select></label>
+<label>Материалы <select id="theme"><option value="wood">Дерево</option><option value="marble">Мрамор</option><option value="walnut">Орех</option></select></label>
+<label>Фигуры 3D <select id="shape"><option value="classic">Классические</option><option value="slim">Узкие</option><option value="glb" disabled>Из GLB</option></select></label>
+<label>Свет <input id="light" type="range" min="1" max="6" step="0.5" value="3.5"></label>
+<label>Набор фигур GLB <input id="piece-set" type="file" accept=".glb"></label>
+<small>GLB: 12 объектов wP…wK и bP…bK, ось Y вверх. Наборы сцен не повторяют ChessRender360 в точности.</small>
+<button id="pause" class="quiet">Приостановить поток</button>
+<label>Проверить JPEG <input id="image-file" type="file" accept="image/jpeg"></label>
+<button id="analyze" class="quiet">Проверить выбранный кадр</button>
+<button id="save-frame" class="quiet">↓ Текущий кадр JPEG</button>
+</section><section class="card"><h2>Распознанная позиция</h2><p id="vision-status">Ожидаем кадр</p>
+<code id="recognized-placement"></code><p id="accuracy"></p>
+<label>Чей ход <select id="active-color"><option value="w">Белые</option><option value="b">Чёрные</option></select></label>
+<label>Рокировка <input id="castling" value="-" maxlength="4"></label>
+<label>Взятие на проходе <input id="en-passant" value="-" maxlength="2"></label>
+<p id="recognized-fen"></p><small>Расстановка — результат сети. Остальные поля FEN задаются вручную; счётчики — 0 и 1.</small>
+</section><section class="card"><div class="card-title"><h2>Производительность</h2><span class="tag">LIVE</span></div><div class="hero-metric"><strong id="fps">—</strong><span>кадров/с<br><small>обработано · окно 5 с</small></span><svg id="spark" viewBox="0 0 260 42" preserveAspectRatio="none"><polyline points="" /></svg></div><div class="metric-grid"><div><span>Инференс · p50</span><strong id="infer">—</strong></div><div><span>Инференс · p95</span><strong id="p95">—</strong></div><div><span>Возраст · p50</span><strong id="age">—</strong></div><div><span>Возраст · p95</span><strong id="age95">—</strong></div></div><div class="timing-list"><div><span>Подготовка / NMS</span><b id="stages">—</b></div><div><span>Ожидание обработки</span><b id="queue">—</b></div><div><span>Отправлено / заменено сервером</span><b id="counts">0 / 0</b></div><div><span>Пропущено до отправки</span><b id="skipped">0</b></div><div><span>Отрисовка / захват, FPS</span><b id="render-fps">—</b></div></div><label class="capture-label" for="capture-fps">Частота виртуальной камеры <select id="capture-fps"><option value="10">10 FPS</option><option value="15">15 FPS</option><option value="30" selected>30 FPS</option><option value="60">60 FPS</option></select></label><p class="note">Свежие кадры заменяют ожидающие. Рамки сохраняются между результатами и могут отставать при движении.</p></section>
   <section class="card detections-card"><div class="card-title"><h2>Распознанные фигуры</h2><span id="detection-count" class="count">0</span></div><div class="table-heading"><span>КЛАСС</span><span>CONFIDENCE</span></div><div id="detections"><p class="empty">Ожидаем первый результат модели</p></div></section>
   <section class="card model-card"><p class="eyebrow">МОДЕЛЬ И СЕССИЯ</p><strong id="model-name">Загрузка модели…</strong><p id="model-info">CPU · batch 1 · прогрев перед замерами</p><div class="export-row"><button id="json" class="quiet">↓ JSON</button><button id="csv" class="quiet">↓ CSV</button></div><small>Метрики последних 5 минут. Точность на этой сцене зависит от обучающих данных.</small></section></aside></div><footer><span>EDGECHESS / VIRTUAL CAMERA</span><span>Python 3.10 · ONNX Runtime · Linux</span></footer></main>`;
 
@@ -16,6 +36,7 @@ const el = <T extends HTMLElement = HTMLElement>(id: string) =>
 const board = new BoardScene(el("viewport"));
 const overlay = el<HTMLCanvasElement>("overlay");
 const context = overlay.getContext("2d")!;
+const stillFrame=el<HTMLCanvasElement>("still-frame");
 const fen = el<HTMLInputElement>("fen");
 board.onChange = () => {
   fen.value = board.chess.fen();
@@ -61,6 +82,8 @@ type Result = {
   timings: Record<string, number>;
   counters: { received: number; processed: number; replaced: number };
   session_fps: number;
+  profile: string; backend: string; status: string; placement: string | null; warnings: string[];
+  pieces: (Detection & { square: string; symbol: string })[]; stages: Record<string, Record<string, number>>;
 };
 type Sample = {
   at: number;
@@ -72,7 +95,13 @@ type Sample = {
   queue_ms: number;
   processing_ms: number;
   detections: number;
+  stages: Record<string, Record<string, number>>;
 };
+let paused = false;
+let configurationFailed = false;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let resultPlacement: string | null = null;
+const selection = (id: string) => el<HTMLSelectElement>(id).value;
 let socket: WebSocket | null = null,
   ready = false,
   awaitingAck = false,
@@ -103,14 +132,20 @@ const status = (message: string, active = false) => {
   el("status").textContent = message;
   el("status-dot").classList.toggle("active", active);
 };
+function showConfiguration(data: { model: string; provider: string; profile: string; input_size: number; warmup_runs: number; backend: string; models: { conversion_verified: boolean }[] }) {
+  el("model-name").textContent=data.model;
+  el("model-info").textContent=`${data.provider} · ${data.profile} · ${data.input_size} × ${data.input_size} · прогрев ${data.warmup_runs} проходов${data.models.some(m => !m.conversion_verified) ? " · погрешность конвертации превышает порог" : ""}`;
+  el("backend-tag").textContent=data.backend;
+}
 function connect() {
+  if (paused) return;
   const ownGeneration = ++generation;
   ready = false;
   awaitingAck = false;
   pending.clear();
   lastResult = null;
   const ws = new WebSocket(
-    `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/stream`,
+    `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/stream?${new URLSearchParams({profile:selection("profile"),backend:selection("backend"),orientation:selection("orientation")})}`,
   );
   socket = ws;
   status("Подключение…");
@@ -119,16 +154,19 @@ function connect() {
     const data = JSON.parse(event.data);
     if (data.type === "ready") {
       ready = true;
+      configurationFailed = false;
       metadata = data;
       sent = skipped = capturedCount = 0;
       capturedPrevious = 0;
       samples = [];
       statsHistory = [];
       streamStart = performance.now();
-      el("model-name").textContent = data.model;
-      el("model-info").textContent =
-        `CPU · ${data.threads} потока · ${data.input_size} × ${data.input_size} · прогрев ${data.warmup_runs} проходов`;
-      status("Камера подключена", true);
+      showConfiguration(data);
+      status(data.models.some((m: { conversion_verified: boolean }) => !m.conversion_verified) ? "Камера подключена · проверка погрешности конвертации не пройдена" : "Камера подключена", true);
+    } else if (data.type === "configuration_error") {
+      configurationFailed = true;
+      paused = true; el("pause").textContent = "Возобновить поток";
+      status(data.message);
     } else if (data.type === "ack") {
       awaitingAck = false;
     } else if (data.type === "frame_error") {
@@ -149,11 +187,14 @@ function connect() {
         age_ms: now - captured,
         ...data.timings,
         detections: data.detections.length,
+        stages: data.stages,
       });
       samples = samples.filter((s) => now - s.at < 300000).slice(-18000);
       for (const id of pending.keys()) if (id <= data.id) pending.delete(id);
       status("Поток активен", true);
       renderDetections(data.detections);
+      renderRecognition(data, selection("source-mode") === data.profile, framePositions.get(data.id));
+      for (const id of framePositions.keys()) if (id <= data.id) framePositions.delete(id);
     }
   };
   ws.onclose = (event) => {
@@ -162,12 +203,13 @@ function connect() {
     awaitingAck = false;
     lastResult = null;
     renderDetections([]);
+    if (paused) return;
     status(
       event.code === 1013
         ? "Сервер занят другой камерой"
         : "Нет соединения · повтор через 2 с",
     );
-    setTimeout(connect, 2000);
+    reconnectTimer = setTimeout(connect, 2000);
   };
   ws.onerror = () => ws.close();
 }
@@ -243,7 +285,7 @@ function drawOverlay(now: number) {
   if (
     !el<HTMLInputElement>("boxes").checked ||
     !lastResult ||
-    now - lastReceived > 2000
+    (!paused && now - lastReceived > 2000)
   )
     return;
   context.font = "12px ui-monospace, monospace";
@@ -283,7 +325,7 @@ function animate(now: number) {
   }
   if (awaitingAck && now - ackSince > 5000) socket?.close();
   const fps = Number(el<HTMLSelectElement>("capture-fps").value);
-  if (now >= nextCapture && ready && !document.hidden) {
+  if (now >= nextCapture && ready && !paused && !document.hidden) {
     nextCapture = now + 1000 / fps;
     if (encoding || awaitingAck || (socket?.bufferedAmount ?? 0) > 0) {
       skipped++;
@@ -294,6 +336,8 @@ function animate(now: number) {
       currentGeneration = generation,
       captured = performance.now();
     capturedCount++;
+    framePositions.set(id, board.chess.fen().split(" ")[0]);
+    if (framePositions.size > 100) framePositions.delete(framePositions.keys().next().value!);
     board
       .snapshot()
       .then((bitmap) =>
@@ -356,7 +400,7 @@ setInterval(() => {
       50,
     ),
   );
-  el("counts").textContent = `${sent} / ${lastResult?.counters.replaced ?? 0}`;
+  el("counts").textContent = `${sent} / ${lastResult?.counters?.replaced ?? 0}`;
   el("skipped").textContent = String(skipped);
   el("render-fps").textContent =
     `${renderFps.toFixed(0)} / ${captureRate.toFixed(0)}`;
@@ -373,10 +417,10 @@ setInterval(() => {
     );
   el("scene-message").textContent = document.hidden
     ? "Вкладка скрыта · захват приостановлен"
-    : ready && (!lastResult || now - lastReceived > 2000)
+    : ready && (!lastResult || (!paused && now - lastReceived > 2000))
       ? "Ожидаем свежий результат…"
       : "";
-  if (lastResult && now - lastReceived > 2000) {
+  if (lastResult && (!paused && now - lastReceived > 2000)) {
     lastResult = null;
     renderDetections([]);
     if (ready) status("Нет свежих результатов");
@@ -387,7 +431,8 @@ function download(format: "json" | "csv") {
   const now = performance.now();
   const rows = samples
     .filter((s) => now - s.at < 300000)
-    .map(({ at, ...s }) => ({ elapsed_ms: at - streamStart, ...s }));
+    .map(({ at, stages, ...s }) => ({ elapsed_ms: at - streamStart, ...s,
+      ...Object.fromEntries(Object.entries(stages).flatMap(([name, times]) => Object.entries(times).map(([metric, value]) => [`${name}_${metric}`, value]))) }));
   const report = {
     exported_at: new Date().toISOString(),
     model: metadata,
@@ -396,12 +441,14 @@ function download(format: "json" | "csv") {
       width: 960,
       height: 720,
       jpeg_quality: 0.88,
+      source: stillFrame.hidden ? selection("source-mode") : "jpeg",
+      orientation: selection("orientation"), theme: selection("theme"), shape: selection("shape"), light: Number(el<HTMLInputElement>("light").value),
     },
     counters: { sent, skipped, ...lastResult?.counters },
     samples: rows,
   };
   const keys = rows.length
-    ? Object.keys(rows[0])
+    ? [...new Set(rows.flatMap(row => Object.keys(row)))]
     : ["elapsed_ms", "id", "age_ms", "inference_ms"];
   const content =
     format === "json"
@@ -425,7 +472,94 @@ function download(format: "json" | "csv") {
 }
 el("json").onclick = () => download("json");
 el("csv").onclick = () => download("csv");
+const framePositions = new Map<number, string>();
+function renderRecognition(result: Result, fromScene: boolean, expected?: string) {
+  resultPlacement = result.placement;
+  el("vision-status").textContent = `${result.profile} / ${result.backend}: ${result.status}${result.warnings?.length ? " · " + result.warnings.join(", ") : ""}`;
+  el("recognized-placement").textContent = result.placement ?? "Нет распознанной расстановки";
+  el("accuracy").textContent = fromScene && expected && result.placement
+    ? (result.placement === expected ? "Расстановка совпала с кадром сцены" : "Расстановка отличается от кадра сцены") : "";
+  renderFen();
+}
+function renderFen() {
+  const color = selection("active-color"), castling = el<HTMLInputElement>("castling").value, ep = el<HTMLInputElement>("en-passant").value;
+  const valid = /^(-|K?Q?k?q?)$/.test(castling) && castling.length > 0 && /^(-|[a-h][36])$/.test(ep);
+  el("recognized-fen").textContent = resultPlacement && valid ? `${resultPlacement} ${color} ${castling} ${ep} 0 1` : "";
+}
+for (const id of ["active-color","castling","en-passant"]) el(id).onchange = renderFen;
+function appearance() {
+  board.setAppearance(selection("source-mode") as "2d" | "3d",selection("theme"),selection("shape"),Number(el<HTMLInputElement>("light").value));
+}
+for (const id of ["source-mode","theme","shape","light"]) el(id).onchange = appearance;
+el<HTMLInputElement>("piece-set").onchange = async e => {
+  const file=(e.target as HTMLInputElement).files?.[0]; if (!file) return;
+  try {
+    if (file.size > 20*1024*1024) throw new Error("GLB больше 20 МБ");
+    await board.loadPieceSet(await file.arrayBuffer());
+    const option=el<HTMLSelectElement>("shape").querySelector<HTMLOptionElement>('option[value="glb"]')!;
+    option.disabled=false; el<HTMLSelectElement>("shape").value="glb";
+    appearance();
+  } catch(error) { board.onMessage(String(error)); }
+};
+function reconnect() {
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  ++generation; socket?.close(); ready=false; lastResult=null; resultPlacement=null; renderFen();
+  framePositions.clear(); pending.clear();
+  stillFrame.hidden=true; board.renderer.domElement.style.visibility="visible";
+  if (!paused) connect();
+}
+for (const id of ["profile","backend","orientation"]) el(id).onchange = () => {
+  if (configurationFailed) {
+    configurationFailed=false; paused=false; el("pause").textContent="Приостановить поток";
+  }
+  reconnect();
+};
+el("pause").onclick = () => {
+  paused=!paused; el("pause").textContent=paused?"Возобновить поток":"Приостановить поток"; reconnect();
+  if (paused) status("Поток приостановлен");
+};
+el("analyze").onclick = async () => {
+  const file=el<HTMLInputElement>("image-file").files?.[0];
+  if (!file) { status("Выберите JPEG"); return; }
+  if (!paused) { status("Сначала приостановите поток"); return; }
+  try {
+    const query=new URLSearchParams({profile:selection("profile"),backend:selection("backend"),orientation:selection("orientation")});
+    const response=await fetch(`/api/analyze?${query}`,{method:"POST",headers:{"Content-Type":"image/jpeg"},body:file});
+    const data=await response.json();
+    if (!response.ok) throw new Error(data.detail);
+    const bitmap=await createImageBitmap(file);
+    stillFrame.width=bitmap.width; stillFrame.height=bitmap.height;
+    stillFrame.getContext("2d")!.drawImage(bitmap,0,0); bitmap.close();
+    stillFrame.hidden=false; board.renderer.domElement.style.visibility="hidden";
+    lastResult=data; lastReceived=performance.now();
+    metadata=data.configuration; showConfiguration(data.configuration);
+    renderRecognition(data,false); renderDetections(data.detections);
+    status("Сохранённый кадр обработан");
+  } catch(error) { status(String(error)); }
+};
+el("save-frame").onclick = async () => {
+  const bitmap=await board.snapshot();
+  const canvas=new OffscreenCanvas(960,720); canvas.getContext("2d")!.drawImage(bitmap,0,0,960,720); bitmap.close();
+  const blob=await canvas.convertToBlob({type:"image/jpeg",quality:.88});
+  const url=URL.createObjectURL(blob), link=document.createElement("a");
+  link.href=url; link.download="edgechess-frame.jpg"; link.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
+};
+appearance();
 if (!("OffscreenCanvas" in window))
   status("Нужен браузер с поддержкой OffscreenCanvas");
-else connect();
+else void initialize();
+async function initialize() {
+  try {
+    const response=await fetch("/api/health");
+    if (!response.ok) throw new Error("Сервер не готов");
+    const data=await response.json();
+    el<HTMLSelectElement>("profile").value=data.profile;
+    el<HTMLSelectElement>("backend").value=data.backend;
+    el<HTMLSelectElement>("source-mode").value=data.profile;
+    appearance(); connect();
+  } catch {
+    status("Нет соединения · повтор через 2 с");
+    reconnectTimer=setTimeout(initialize,2000);
+  }
+}
 requestAnimationFrame(animate);

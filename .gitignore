@@ -10,3 +10,8 @@ node_modules/
 dist/
 .pytest_cache/
 web/benchmark.json
+
+!CV_2D/weights/*.pt
+!CV_3D/weights/*.pt
+
+.env

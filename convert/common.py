@@ -24,10 +24,11 @@ def save_json(path, value):
     path.write_text(json.dumps(value, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
-def images(split="test"):
-    manifest = json.loads((ROOT / "data/manifest.json").read_text(encoding="utf-8"))
+def images(split="test", model=None):
+    manifest = json.loads((ROOT / "data" / model / "manifest.json" if model else ROOT / "data/manifest.json").read_text(encoding="utf-8"))
     return [ROOT / r["path"] for r in manifest["files"]
-            if r["path"].startswith(f"data/{split}/images/")]
+            if (r.get("split") == split or r["path"].startswith(f"data/{split}/images/"))
+            and Path(r["path"]).suffix.lower() in (".jpg", ".jpeg", ".png")]
 
 
 def preprocess(path, size=640):

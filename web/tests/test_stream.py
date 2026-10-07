@@ -79,3 +79,34 @@ def test_duplicate_id_is_rejected():
                 if message["type"] == "websocket.close":
                     assert message["code"] == 1008
                     break
+
+
+class ConfigurableDetector(SlowDetector):
+    def configure(self,profile,backend):
+        if backend=='broken':raise ValueError('Unavailable backend')
+        self.profile=profile
+    def predict(self,jpeg,orientation='white'):
+        result=super().predict(jpeg)
+        result.update(profile=self.profile,orientation=orientation)
+        return result
+
+
+def test_configuration_failure_releases_worker_and_saved_frame():
+    with TestClient(create_app(ConfigurableDetector)) as client:
+        with client.websocket_connect('/api/stream?backend=broken') as ws:
+            assert ws.receive_json()['type']=='configuration_error'
+            assert ws.receive()['code']==1008
+        for _ in range(100):
+            if not client.app.state.busy:break
+            time.sleep(.01)
+        result=client.post('/api/analyze?profile=3d&orientation=black',content=b'jpeg')
+        assert result.status_code==200
+        assert result.json()['profile']=='3d' and result.json()['orientation']=='black'
+        with client.websocket_connect('/api/stream?profile=2d') as ws:
+            assert ws.receive_json()['type']=='ready'
+            assert client.post('/api/analyze',content=b'jpeg').status_code==409
+        for _ in range(100):
+            if not client.app.state.busy:break
+            time.sleep(.01)
+        assert client.post('/api/analyze?backend=broken',content=b'jpeg').status_code==422
+        assert client.post('/api/analyze',content=b'jpeg').status_code==200

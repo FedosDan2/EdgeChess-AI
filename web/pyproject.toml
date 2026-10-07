@@ -1,8 +1,8 @@
 [project]
 name = "edgechess-web"
 version = "0.1.0"
-description = "Virtual chess camera and ONNX CPU inference on Linux"
-requires-python = ">=3.10,<3.11"
+description = "Virtual chess camera and ONNX CPU and RKNN NPU chess inference on Linux"
+requires-python = ">=3.10,<3.13"
 dependencies = [
   "anyio>=4,<5",
   "fastapi==0.115.12",
@@ -13,13 +13,16 @@ dependencies = [
   "pillow==11.2.1",
 ]
 
+[project.optional-dependencies]
+rknn = ["rknn-toolkit-lite2==2.3.2; platform_machine == 'aarch64'"]
+
 [dependency-groups]
 dev = ["pytest==8.3.5", "httpx==0.28.1"]
 
 [tool.uv]
 package = false
-environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+environments = ["sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')"]
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
+pythonpath = [".", ".."]
 testpaths = ["tests"]

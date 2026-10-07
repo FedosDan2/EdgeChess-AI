@@ -3,6 +3,7 @@
 Uses actual test images and artificial landscape/portrait images. This guards
 against a shared preprocessing/NMS bug making both ONNX comparisons look correct.
 """
+import argparse
 import json
 import os
 import tempfile
@@ -19,7 +20,11 @@ from ultralytics.utils.ops import non_max_suppression, scale_boxes
 
 
 def main():
-    metadata = json.loads((ARTIFACTS / "model.json").read_text(encoding="utf-8"))
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", choices=("board2d","pieces2d","chess3d"), required=True)
+    args = parser.parse_args()
+    output = ARTIFACTS / args.model
+    metadata = json.loads((output / "model.json").read_text(encoding="utf-8"))
     # Cover non-square inputs; source Kaggle samples happen to be square.
     with tempfile.TemporaryDirectory() as directory:
         for h, w in [(720, 1280), (1280, 720), (517, 883)]:
@@ -32,9 +37,9 @@ def main():
             np.testing.assert_array_equal(rgb, cv2.cvtColor(expected, cv2.COLOR_BGR2RGB))
     options = ort.SessionOptions()
     options.intra_op_num_threads = 4
-    session = ort.InferenceSession(str(ARTIFACTS / "yolov8s.onnx"), sess_options=options,
+    session = ort.InferenceSession(str(output / "model.onnx"), sess_options=options,
                                    providers=["CPUExecutionProvider"])
-    for path in images():
+    for path in map(Path, metadata["verification_images"]):
         original, rgb, tensor, info = preprocess(path)
         expected_rgb = cv2.cvtColor(LetterBox(new_shape=(640, 640), auto=False)(image=original), cv2.COLOR_BGR2RGB)
         np.testing.assert_array_equal(rgb, expected_rgb)

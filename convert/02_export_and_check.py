@@ -1,4 +1,4 @@
-"""CPU: load trusted YOLOv8 detection checkpoint, export two ONNX graphs, compare.
+"""CPU: load trusted YOLOv8/YOLO11 detection checkpoint, export two ONNX graphs, compare.
 
 Standard ONNX preserves decoded xywh output. Split ONNX moves only DFL/coordinate
 decoding to common.py for RKNN; weights and convolutional layers are unchanged.
@@ -11,6 +11,10 @@ import platform
 import time
 import types
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from vision.config import MODELS
 from common import ARTIFACTS, ROOT, compare_detections, decode_split, draw, images, postprocess, preprocess, save_json, sha256
 
 os.environ.setdefault("YOLO_CONFIG_DIR", str(ARTIFACTS / "ultralytics"))
@@ -46,21 +50,25 @@ def session(path, threads):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--weights", default=str(ROOT.parent / "YOLOv8s_test.pt"))
+    parser.add_argument("--model", choices=MODELS, required=True)
+    parser.add_argument("--weights", type=Path)
+    parser.add_argument("--verification-directory", type=Path, help="Alternative images: numerical verification only, not task accuracy")
     parser.add_argument("--threads", type=int, default=4)
     args = parser.parse_args()
-    ARTIFACTS.mkdir(exist_ok=True)
+    output = ARTIFACTS / args.model
+    output.mkdir(parents=True, exist_ok=True)
+    weights = args.weights or MODELS[args.model]
     torch.set_num_threads(args.threads)
-    yolo = YOLO(args.weights, task="detect")
+    yolo = YOLO(weights, task="detect")
     network = yolo.model.cpu().float().eval()
     head = network.model[-1]
     if type(head).__name__ != "Detect" or head.nl != 3 or getattr(head, "end2end", False):
-        raise ValueError("This script supports the three-scale YOLOv8 Detect head only")
+        raise ValueError("This script supports the three-scale YOLOv8/YOLO11 Detect heads")
     names = [network.names[i] for i in range(head.nc)]
     print(f"Classes ({len(names)}): {names}", flush=True)
     network.fuse()
     head.export, head.format, head.dynamic = True, "onnx", False
-    standard_path, split_path = ARTIFACTS / "yolov8s.onnx", ARTIFACTS / "yolov8s_split.onnx"
+    standard_path, split_path = output / "model.onnx", output / "model_split.onnx"
     print("Exporting standard ONNX (opset 12, static NCHW, external NMS)", flush=True)
     export(network, standard_path, ["predictions"])
     original_forward = head.forward
@@ -71,7 +79,7 @@ def main():
     finally:
         head.forward = original_forward
     standard, split = session(standard_path, args.threads), session(split_path, args.threads)
-    manifest = {"weights_sha256": sha256(args.weights), "names": names, "imgsz": 640, "opset": 12,
+    manifest = {"key": args.model, "weights_sha256": sha256(weights), "names": names, "imgsz": 640, "opset": 12,
                 "reg_max": head.reg_max, "strides": head.stride.tolist(),
                 "preprocessing": {"color": "RGB", "letterbox": 640, "pad": 114,
                                   "onnx_layout": "NCHW", "onnx_dtype": "float32", "onnx_scale": "1/255",
@@ -82,7 +90,7 @@ def main():
                 "environment": {"python": platform.python_version(), "platform": platform.platform(),
                                 **{p: importlib.metadata.version(p) for p in
                                    ("torch", "ultralytics", "onnx", "onnxruntime", "numpy", "opencv-python")}}}
-    save_json(ARTIFACTS / "model.json", manifest)
+    save_json(output / "model.json", manifest)
     baseline, comparisons = {}, []
     # Warm up before timing; these are local CPU call durations, not NPU benchmarks.
     dummy = np.zeros((1, 3, 640, 640), dtype=np.float32)
@@ -91,7 +99,11 @@ def main():
     standard.run(None, {"images": dummy})
     split.run(None, {"images": dummy})
     all_passed = True
-    for path in images():
+    selected = (sorted(p for p in args.verification_directory.iterdir() if p.suffix.lower() in (".jpg",".jpeg",".png"))
+                if args.verification_directory else images(model=args.model))
+    manifest["verification_images"] = [str(p.resolve()) for p in selected]
+    save_json(output / "model.json", manifest)
+    for path in selected:
         image, _, tensor, info = preprocess(path)
         begin = time.perf_counter()
         with torch.inference_mode():
@@ -103,7 +115,7 @@ def main():
         split_prediction = decode_split(split.run(None, {"images": tensor}))
         reference = postprocess(expected, info, names)
         baseline[path.name] = {"image_sha256": sha256(path), "detections": reference}
-        draw(image, reference, ARTIFACTS / "pytorch" / path.name)
+        draw(image, reference, output / "pytorch" / path.name)
         record = {"image": path.name, "pytorch_cpu_ms": torch_ms, "onnx_cpu_ms": onnx_ms}
         for label, prediction in [("onnx", actual), ("split_onnx", split_prediction)]:
             detections = postprocess(prediction, info, names)
@@ -115,11 +127,11 @@ def main():
             record[label] = {"passed": passed, "max_box_delta": float(np.max(np.abs(expected[:, :4] - prediction[:, :4]))),
                              "max_score_delta": float(np.max(np.abs(expected[:, 4:] - prediction[:, 4:]))),
                              "agreement": agreement}
-            draw(image, detections, ARTIFACTS / label / path.name)
+            draw(image, detections, output / label / path.name)
         comparisons.append(record)
         print(f"{path.name}: {len(reference)} detections; ONNX={record['onnx']['passed']}, split={record['split_onnx']['passed']}", flush=True)
-    save_json(ARTIFACTS / "pytorch_predictions.json", baseline)
-    save_json(ARTIFACTS / "onnx_comparison.json", {"passed": all_passed, "image_count": len(comparisons),
+    save_json(output / "pytorch_predictions.json", baseline)
+    save_json(output / "onnx_comparison.json", {"passed": all_passed, "image_count": len(comparisons),
               "note": "Agreement with PyTorch on a small subset; not ground-truth mAP or an NPU benchmark.",
               "model": manifest, "images": comparisons})
     if not comparisons or not all_passed:
