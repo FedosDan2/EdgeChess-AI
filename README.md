@@ -17,6 +17,8 @@ ONNX работает на CPU; RKNN FP16/INT8 — через RKNN Lite на NPU
 
 Подробные команды: [конвертация](convert/README.md), [web-ui и Firefly](web/README.md). Фактические проверки и ограничения: [отчёт](convert/RUN_REPORT.md).
 
+Создание синтетического YOLO-датасета на текущей 3D-сцене: [генератор датасета](web/frontend/DATASET.md).
+
 ```bash
 cd convert
 uv sync --locked
