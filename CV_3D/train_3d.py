@@ -9,14 +9,14 @@ from ultralytics import YOLO
 # ============================================================
 # CONFIG
 # ============================================================
-DATA_YAML = "./CV_3D/synthetic-demo-aug/data.yaml"   # аугментированный train
+DATA_YAML = "./CV_3D/synthetic-2000/data.yaml"   # аугментированный train
 # DATA_YAML = "./CV_3D/synthetic-demo/data.yaml"     # оригинальный (меньше данных)
 
-MODEL = "yolov8n.pt"          # базовая предобучка, старт с нуля
+MODEL = "yolov8m.pt"          # базовая предобучка, старт с нуля
 PROJECT = "./CV_3D/runs"
-NAME = "3d_from_scratch"
+NAME = "3d_from_scratch_v2"
 
-EPOCHS = 100
+EPOCHS = 200
 BATCH = 8
 IMGSZ = 640
 DEVICE = 0
