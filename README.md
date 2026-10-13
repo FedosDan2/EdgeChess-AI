@@ -14,7 +14,37 @@ ONNX работает на CPU; RKNN FP16/INT8 — через RKNN Lite на NPU
 
 Общие letterbox, DFL и NMS переиспользованы из `convert/common.py`. `vision` содержит загрузчик моделей, геометрию и два профиля. HTTP/WebSocket адаптер не содержит отдельного алгоритма распознавания. Новые профили добавляются через `vision/config.py` и `vision/pipeline.py`; выбор источника камеры независим от профиля.
 
-## Подготовка и запуск
+## Основной запуск: NPU на Firefly
+
+Основной вариант — **YOLOv8m, RKNN INT8, аппаратный NPU**. FP16 доступен
+для сравнения в том же UI. На плате уже проверены реальный инференс и
+переключение INT8 → FP16 → INT8.
+
+Для установленного пакета задайте в терминале `APP_DIR` — каталог приложения
+в согласованной рабочей папке платы, затем выполните:
+
+```bash
+cd "$APP_DIR"
+bash run-web.sh
+```
+
+Подготовленный `run-web.sh` использует существующее conda-окружение,
+библиотеки из `.deps` и запускает INT8 по умолчанию. Для старта с FP16:
+
+```bash
+EDGECHESS_BACKEND=rknn_fp16 bash run-web.sh
+```
+
+Откройте адрес платы с портом `8000` через свою настроенную сеть или
+SSH-туннель. В поле **«Исполнитель»** переключайте **RKNN INT8 · NPU** и
+**RKNN FP16 · NPU**. Адреса подключения и учётные данные задаются вне README.
+В `/api/health` ожидаются `backend: rknn_int8` (либо `rknn_fp16`) и
+`provider: RKNN NPU`. Автоматической замены NPU на CPU нет.
+
+Для нового развёртывания, установки зависимостей и запуска без готового
+скрипта используйте [инструкцию NPU](web/README.md#основной-запуск-на-npu).
+
+## Подготовка моделей
 
 Подробные команды: [конвертация](convert/README.md), [web-ui и Firefly](web/README.md). Фактические проверки и ограничения: [отчёт](convert/RUN_REPORT.md).
 
@@ -38,7 +68,9 @@ for model in board2d pieces2d chess3d chess3d_m; do
 done
 ```
 
-Проверка INT8 может завершиться ненулевым кодом при превышении погрешности. RKNN и отчёт сохраняются для проверки качества в UI; статус такой конвертации виден в метаданных. FP16 рекомендуется как отправная точка.
+Проверка INT8 может завершиться ненулевым кодом при превышении погрешности. RKNN и отчёт сохраняются для проверки качества в UI; статус такой конвертации виден в метаданных. Для новой YOLOv8m INT8 и FP16 прошли проверки конвертации и запуск на NPU.
+
+## Дополнительный запуск: ONNX на локальном CPU
 
 ```bash
 cd web/frontend
@@ -46,10 +78,10 @@ npm ci
 npm run build
 cd ..
 uv sync --locked
-uv run uvicorn backend.app:app --host 127.0.0.1 --port 8000
+EDGECHESS_PROFILE=3d EDGECHESS_3D_MODEL=chess3d_m EDGECHESS_BACKEND=onnx uv run uvicorn backend.app:app --host localhost --port 8000
 ```
 
-Откройте `http://127.0.0.1:8000`. По умолчанию выбран профиль 3D, YOLOv8m и ONNX. Настройки запуска: `EDGECHESS_PROFILE`, `EDGECHESS_3D_MODEL`, `EDGECHESS_BACKEND`, `EDGECHESS_ARTIFACTS`, `EDGECHESS_THREADS`, `EDGECHESS_CONFIDENCE`. Интерфейс берёт начальную конфигурацию у сервера; `EDGECHESS_3D_MODEL=chess3d` выбирает прежнюю дообученную YOLO11s.
+Откройте `http://localhost:8000`. Эта команда выбирает профиль 3D, YOLOv8m и ONNX CPU для локальной проверки. Настройки запуска: `EDGECHESS_PROFILE`, `EDGECHESS_3D_MODEL`, `EDGECHESS_BACKEND`, `EDGECHESS_ARTIFACTS`, `EDGECHESS_THREADS`, `EDGECHESS_CONFIDENCE`. Интерфейс берёт начальную конфигурацию у сервера; `EDGECHESS_3D_MODEL=chess3d` выбирает прежнюю дообученную YOLO11s.
 
 ## Возможности интерфейса
 
