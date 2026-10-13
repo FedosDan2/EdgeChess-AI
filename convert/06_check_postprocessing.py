@@ -10,6 +10,7 @@ import tempfile
 from pathlib import Path
 
 from common import ARTIFACTS, compare_detections, images, postprocess, preprocess
+from vision.config import MODELS
 os.environ.setdefault("YOLO_CONFIG_DIR", str(ARTIFACTS / "ultralytics"))
 import cv2
 import numpy as np
@@ -21,7 +22,7 @@ from ultralytics.utils.ops import non_max_suppression, scale_boxes
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", choices=("board2d","pieces2d","chess3d"), required=True)
+    parser.add_argument("--model", choices=MODELS, required=True)
     args = parser.parse_args()
     output = ARTIFACTS / args.model
     metadata = json.loads((output / "model.json").read_text(encoding="utf-8"))

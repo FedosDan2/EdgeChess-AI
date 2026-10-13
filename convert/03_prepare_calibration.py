@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from vision.inference import Model
 from vision.geometry import board_geometry, board_crop
+from vision.config import MODELS, MODEL_DATA
 import cv2
 from common import ROOT, images, preprocess, preprocess_image, save_json, sha256
 
@@ -18,10 +19,10 @@ from common import ROOT, images, preprocess, preprocess_image, save_json, sha256
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--model", choices=("board2d", "pieces2d", "chess3d"), required=True
+        "--model", choices=MODELS, required=True
     )
     args = parser.parse_args()
-    directory = ROOT / "data" / args.model
+    directory = ROOT / "data" / MODEL_DATA[args.model]
     output = directory / "calibration"
     output.mkdir(parents=True, exist_ok=True)
     paths, records, skipped = [], [], []

@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 from .inference import ROOT
 from vision.pipeline import Pipeline
-from vision.config import PROFILES, BACKENDS
+from vision.config import PROFILES, BACKENDS, MODELS_3D
 
 
 def main():
@@ -15,6 +15,7 @@ def main():
     parser.add_argument("images", nargs="+", type=Path)
     parser.add_argument("--profile", choices=PROFILES, default="2d")
     parser.add_argument("--backend", choices=BACKENDS, default="onnx")
+    parser.add_argument("--model", choices=MODELS_3D)
     parser.add_argument("--runs", type=int, default=100)
     parser.add_argument("--output", type=Path, default=Path("benchmark.json"))
     args = parser.parse_args()
@@ -23,7 +24,7 @@ def main():
     frames = [cv2.imread(str(p)) for p in args.images]
     if any(f is None for f in frames):
         parser.error("Cannot decode an input image")
-    pipeline = Pipeline(args.profile, args.backend, directory=ROOT / "convert/artifacts")
+    pipeline = Pipeline(args.profile, args.backend, directory=ROOT / "convert/artifacts", model=args.model)
     samples = []
     try:
         for i in range(args.runs):

@@ -615,3 +615,4 @@ footer {
 
 #still-frame { position:absolute; inset:0; width:100%; height:100%; object-fit:fill; z-index:1; pointer-events:none; }
 #still-frame[hidden] { display:none; }
+#model-label[hidden] { display: none; }

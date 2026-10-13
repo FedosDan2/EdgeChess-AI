@@ -2,12 +2,13 @@
 
 Распознавание шахматной позиции на Firefly RK3588S: конвертация моделей в ONNX/RKNN, виртуальная камера в браузере, детекции и FEN. Stockfish пока не подключён.
 
-Используются актуальные веса из ветки `cv` (коммит `3d89f00`), без слияния её устаревшего runtime:
+Используются веса из ветки `cv`, без слияния её устаревшего runtime.
+Новая 3D YOLOv8m — из `7e497a8`, дообученная YOLO11s — из `87545eb`:
 
 | Профиль | Модели | Обработка |
 |---|---|---|
 | `2d` | YOLOv8n: `board2d`, `pieces2d` | Доска → обрезка bbox → фигуры → клетки |
-| `3d` | YOLO11s: `chess3d` | Один инференс для фигур и четырёх углов → гомография → клетки |
+| `3d` | YOLOv8m: `chess3d_m` (по умолчанию), YOLO11s: `chess3d` | Общий инференс фигур и четырёх углов → гомография → клетки |
 
 ONNX работает на CPU; RKNN FP16/INT8 — через RKNN Lite на NPU. Веса находятся в `CV_2D/weights` и `CV_3D/weights`. Модели экспортируются отдельно в `convert/artifacts/<model>`. На ARM не нужны PyTorch, Ultralytics и полный Toolkit2.
 
@@ -23,10 +24,12 @@ ONNX работает на CPU; RKNN FP16/INT8 — через RKNN Lite на NPU
 cd convert
 uv sync --locked
 uv run python 01_download_samples.py --model chess3d
+# Для новой модели нужен synthetic-2000 из генератора сцены (см. ссылку выше).
+uv run python 01_download_samples.py --model chess3d_m --export ../data/synthetic-2000
 # Для 2D нужен ROBOFLOW_API_KEY в окружении или корневом .env (игнорируется Git).
 uv run python 01_download_samples.py --model board2d
 uv run python 01_download_samples.py --model pieces2d
-for model in board2d pieces2d chess3d; do
+for model in board2d pieces2d chess3d chess3d_m; do
   uv run python 02_export_and_check.py --model "$model"
   uv run python 03_prepare_calibration.py --model "$model"
   uv run python 04_build_rknn.py --model "$model" --precision fp16
@@ -46,13 +49,13 @@ uv sync --locked
 uv run uvicorn backend.app:app --host 127.0.0.1 --port 8000
 ```
 
-Откройте `http://127.0.0.1:8000`. По умолчанию выбран профиль 3D и ONNX. Настройки запуска: `EDGECHESS_PROFILE`, `EDGECHESS_BACKEND`, `EDGECHESS_ARTIFACTS`, `EDGECHESS_THREADS`, `EDGECHESS_CONFIDENCE`. Интерфейс берёт начальный профиль и исполнитель у сервера.
+Откройте `http://127.0.0.1:8000`. По умолчанию выбран профиль 3D, YOLOv8m и ONNX. Настройки запуска: `EDGECHESS_PROFILE`, `EDGECHESS_3D_MODEL`, `EDGECHESS_BACKEND`, `EDGECHESS_ARTIFACTS`, `EDGECHESS_THREADS`, `EDGECHESS_CONFIDENCE`. Интерфейс берёт начальную конфигурацию у сервера; `EDGECHESS_3D_MODEL=chess3d` выбирает прежнюю дообученную YOLO11s.
 
 ## Возможности интерфейса
 
 - 2D-доска с SVG-фигурами и интерактивная 3D-сцена со столешницей.
 - Три оформления, два процедурных набора 3D-фигур, настройка света и импорт GLB.
-- Переключение профиля и ONNX/RKNN FP16/RKNN INT8; ошибка NPU показывается явно.
+- Переключение профиля, двух 3D-моделей и ONNX/RKNN FP16/RKNN INT8; ошибка NPU показывается явно.
 - Сохранение JPEG сцены и анализ загруженного JPEG после приостановки потока.
 - Рамки, классы, расстановка, предупреждения о пропущенных углах и конфликтах клеток.
 - Полный FEN из распознанной расстановки и явно заданных пользователем стороны хода, рокировок и взятия на проходе; счётчики пока 0 и 1.

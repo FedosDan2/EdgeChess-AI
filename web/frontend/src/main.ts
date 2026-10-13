@@ -10,6 +10,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
   <aside><section class="card"><h2>Сцена и обработка</h2>
 <label>Источник <select id="source-mode"><option value="3d">3D-сцена</option><option value="2d">2D-доска</option></select></label>
 <label>Пайплайн <select id="profile"><option value="3d">3D · углы и фигуры</option><option value="2d">2D · доска и обрезка</option></select></label>
+<label id="model-label">Модель 3D <select id="model"></select></label>
 <label>Исполнитель <select id="backend"><option value="onnx">ONNX CPU</option><option value="rknn_fp16">RKNN FP16 · NPU</option><option value="rknn_int8">RKNN INT8 · NPU</option></select></label>
 <label>Ориентация 2D <select id="orientation"><option value="white">Белые снизу</option><option value="black">Чёрные снизу</option></select></label>
 <label>Материалы <select id="theme"><option value="wood">Дерево</option><option value="marble">Мрамор</option><option value="walnut">Орех</option></select></label>
@@ -145,7 +146,7 @@ function connect() {
   pending.clear();
   lastResult = null;
   const ws = new WebSocket(
-    `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/stream?${new URLSearchParams({profile:selection("profile"),backend:selection("backend"),orientation:selection("orientation")})}`,
+    `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/stream?${processingQuery()}`,
   );
   socket = ws;
   status("Подключение…");
@@ -508,7 +509,17 @@ function reconnect() {
   stillFrame.hidden=true; board.renderer.domElement.style.visibility="visible";
   if (!paused) connect();
 }
-for (const id of ["profile","backend","orientation"]) el(id).onchange = () => {
+function processingQuery() {
+  const query = new URLSearchParams({profile:selection("profile"),backend:selection("backend"),orientation:selection("orientation")});
+  if (selection("profile") === "3d") query.set("model",selection("model"));
+  return query;
+}
+function updateModelSelector() {
+  el("model-label").hidden = selection("profile") !== "3d";
+  el<HTMLSelectElement>("model").disabled = selection("profile") !== "3d";
+}
+for (const id of ["profile","model","backend","orientation"]) el(id).onchange = () => {
+  updateModelSelector();
   if (configurationFailed) {
     configurationFailed=false; paused=false; el("pause").textContent="Приостановить поток";
   }
@@ -523,7 +534,7 @@ el("analyze").onclick = async () => {
   if (!file) { status("Выберите JPEG"); return; }
   if (!paused) { status("Сначала приостановите поток"); return; }
   try {
-    const query=new URLSearchParams({profile:selection("profile"),backend:selection("backend"),orientation:selection("orientation")});
+    const query=processingQuery();
     const response=await fetch(`/api/analyze?${query}`,{method:"POST",headers:{"Content-Type":"image/jpeg"},body:file});
     const data=await response.json();
     if (!response.ok) throw new Error(data.detail);
@@ -553,10 +564,13 @@ async function initialize() {
     const response=await fetch("/api/health");
     if (!response.ok) throw new Error("Сервер не готов");
     const data=await response.json();
+    const models=el<HTMLSelectElement>("model");
+    models.replaceChildren(...Object.entries(data.model_choices as Record<string,string>).map(([key,label])=>new Option(label,key)));
+    if (data.profile === "3d") models.value=data.models[0].key;
     el<HTMLSelectElement>("profile").value=data.profile;
     el<HTMLSelectElement>("backend").value=data.backend;
     el<HTMLSelectElement>("source-mode").value=data.profile;
-    appearance(); connect();
+    updateModelSelector(); appearance(); connect();
   } catch {
     status("Нет соединения · повтор через 2 с");
     reconnectTimer=setTimeout(initialize,2000);

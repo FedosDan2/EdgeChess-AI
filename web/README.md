@@ -17,6 +17,18 @@ uv run uvicorn backend.app:app --host 127.0.0.1 --port 8000
 
 По умолчанию `EDGECHESS_PROFILE=3d`, `EDGECHESS_BACKEND=onnx`, `EDGECHESS_THREADS=4`, `EDGECHESS_CONFIDENCE=0.5`. Каталог моделей задаётся `EDGECHESS_ARTIFACTS`, по умолчанию `convert/artifacts` в корне проекта. Поддерживаются `2d|3d` и `onnx|rknn_fp16|rknn_int8`. CPU и NPU выбираются явно, без автоматической подмены.
 
+В 3D доступен отдельный выбор модели: новая YOLOv8m (`chess3d_m`, по умолчанию)
+и прежняя дообученная YOLO11s (`chess3d`). Обе используют общий 3D-пайплайн.
+Для запуска с небольшой моделью задайте `EDGECHESS_3D_MODEL=chess3d`.
+В 2D селектор скрывается, используется прежний каскад board2d → pieces2d.
+При переключении предыдущие inference-сессии освобождаются.
+
+HTTP `/api/analyze` и WebSocket `/api/stream` принимают необязательный параметр
+`model=chess3d_m|chess3d` вместе с `profile=3d`. Без него выбирается модель
+из `EDGECHESS_3D_MODEL`; прежние параметры profile/backend сохраняются.
+При `profile=2d` выбор 3D-модели игнорируется. Список установленных моделей
+возвращается в `model_choices` ответа `/api/health`.
+
 В интерфейсе выбирайте отдельно источник 2D/3D и соответствующий профиль; это позволяет проверять неподходящие кадры осознанно. Для загруженного JPEG сначала приостановите поток. Кадр показывается с рамками и распознанной позицией. Переключение backend освобождает предыдущие модели; ошибка конфигурации прекращает поток и позволяет выбрать доступный исполнитель.
 
 ## Firefly
@@ -28,6 +40,15 @@ uv run uvicorn backend.app:app --host 127.0.0.1 --port 8000
 ```bash
 python3 tools/package_firefly.py --profiles 2d 3d --backends rknn_fp16 rknn_int8
 ```
+
+По умолчанию архив содержит новую YOLOv8m. Для обеих 3D-моделей:
+
+```bash
+python3 tools/package_firefly.py --profiles 2d 3d --3d-models chess3d_m chess3d --backends rknn_fp16 rknn_int8
+```
+
+Для компактного архива с прежней моделью: `--3d-models chess3d`;
+при запуске такого архива используйте `EDGECHESS_3D_MODEL=chess3d`.
 
 По умолчанию упаковщик включает только профиль 3D и FP16; можно указать `--output`. В архиве runtime, зависимости, frontend и выбранные модели; нет PT, ONNX для NPU-only пакета, датасетов, окружений и полных изображений отчётов. Скрипт сам ничего не отправляет на плату.
 
@@ -78,5 +99,8 @@ cd web/frontend
 npx playwright install chromium
 EDGECHESS_WEB_URL=http://127.0.0.1:8000 npm run test:browser
 ```
+
+`npm run test:models` проверяет настоящий поток инференса при переключении
+YOLOv8m → YOLO11s → 2D → YOLO11s → YOLOv8m.
 
 Тест проверяет доступ мыши к сцене, ходы обеих сторон в 3D, вращение, точный сброс камеры и ход в 2D. Chromium требует свои системные библиотеки; браузер и Playwright нужны только локально для разработки и не входят в архив Firefly.

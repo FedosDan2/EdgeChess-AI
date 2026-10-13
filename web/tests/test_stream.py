@@ -82,13 +82,28 @@ def test_duplicate_id_is_rejected():
 
 
 class ConfigurableDetector(SlowDetector):
-    def configure(self,profile,backend):
+    def configure(self,profile,backend,model=None):
         if backend=='broken':raise ValueError('Unavailable backend')
         self.profile=profile
+        self.model=model
     def predict(self,jpeg,orientation='white'):
         result=super().predict(jpeg)
-        result.update(profile=self.profile,orientation=orientation)
+        result.update(profile=self.profile,orientation=orientation,model=self.model)
         return result
+
+
+def test_model_selection_reaches_http_and_stream():
+    with TestClient(create_app(ConfigurableDetector)) as client:
+        result=client.post('/api/analyze?profile=3d&model=chess3d_m',content=b'jpeg')
+        assert result.status_code==200 and result.json()['model']=='chess3d_m'
+        with client.websocket_connect('/api/stream?profile=3d&model=chess3d') as ws:
+            ws.receive_json()
+            ws.send_bytes(struct.pack('>Q',1)+b'jpeg')
+            while True:
+                message=ws.receive_json()
+                if message['type']=='result':
+                    assert message['model']=='chess3d'
+                    break
 
 
 def test_configuration_failure_releases_worker_and_saved_frame():

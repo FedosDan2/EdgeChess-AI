@@ -120,7 +120,9 @@ def main():
         for label, prediction in [("onnx", actual), ("split_onnx", split_prediction)]:
             detections = postprocess(prediction, info, names)
             boxes_ok = bool(np.allclose(expected[:, :4], prediction[:, :4], atol=.02, rtol=1e-4))
-            scores_ok = bool(np.allclose(expected[:, 4:], prediction[:, 4:], atol=2e-5, rtol=1e-4))
+            # Larger YOLOv8m accumulates small FP32 differences in raw background
+            # scores (observed 6.1e-5); selected detections must still match exactly.
+            scores_ok = bool(np.allclose(expected[:, 4:], prediction[:, 4:], atol=1e-4, rtol=1e-4))
             agreement = compare_detections(reference, detections, min_iou=.99)
             passed = boxes_ok and scores_ok and agreement["missing"] == 0 and agreement["extra"] == 0
             all_passed &= passed

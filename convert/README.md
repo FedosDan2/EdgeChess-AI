@@ -1,5 +1,29 @@
 # Конвертация моделей
 
+Две 3D-модели сохраняются независимо: `chess3d` — прежняя дообученная YOLO11s,
+`chess3d_m` — новая YOLOv8m (`CV_3D/weights/best_new_scratch.pt`).
+Артефакты находятся в `artifacts/<model>`, поэтому конвертация одной модели
+не перезаписывает другую. По умолчанию web-ui использует `chess3d_m`.
+
+Для новой модели используйте существующий synthetic-2000, без повторного
+скачивания и копирования исходных изображений:
+
+```bash
+cd convert
+uv run python 01_download_samples.py --model chess3d_m --export ../data/synthetic-2000
+uv run python 02_export_and_check.py --model chess3d_m
+uv run python 03_prepare_calibration.py --model chess3d_m
+uv run python 04_build_rknn.py --model chess3d_m --precision fp16
+uv run python 04_build_rknn.py --model chess3d_m --precision int8
+uv run python 06_check_postprocessing.py --model chess3d_m
+```
+
+Регистрация изображений сохраняет manifest в `data/synthetic3d`; калибровочные
+PNG создаются там же. Источники калибровки задаются отдельно от весов через
+общую конфигурацию `vision/config.py`. Старый `chess3d` продолжает использовать
+свой ChessRender360 manifest и калибровку. Проверки конвертации сравнивают
+исполнители на одинаковых кадрах; повторная оценка качества обучения не нужна.
+
 Linux x86_64, Python 3.10, CPU PyTorch, RKNN Toolkit2 2.3.2. Зависимости закреплены в `uv.lock`; установки CUDA не требуется. Не устанавливайте полный Toolkit2 на Firefly.
 
 ## Данные

@@ -126,7 +126,7 @@ def create_app(detector_factory=Detector):
                         raise ValueError("Invalid orientation")
                     await asyncio.get_running_loop().run_in_executor(app.state.executor,
                         app.state.detector.configure, ws.query_params.get("profile", "2d"),
-                        ws.query_params.get("backend", "onnx"))
+                        ws.query_params.get("backend", "onnx"), ws.query_params.get("model"))
                 except (ValueError, OSError, ImportError, RuntimeError) as exc:
                     await send({"type": "configuration_error", "message": str(exc)})
                     await ws.close(code=1008)
@@ -167,7 +167,7 @@ def create_app(detector_factory=Detector):
                 raise HTTPException(413, "JPEG exceeds 16 MiB")
             def run():
                 detector=app.state.detector
-                detector.configure(request.query_params.get("profile","2d"),request.query_params.get("backend","onnx"))
+                detector.configure(request.query_params.get("profile","2d"),request.query_params.get("backend","onnx"),request.query_params.get("model"))
                 result=detector.predict(jpeg,request.query_params.get("orientation","white"))
                 return {**result,"configuration":detector.describe()}
             return await asyncio.get_running_loop().run_in_executor(app.state.executor,run)

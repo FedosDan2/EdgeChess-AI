@@ -9,12 +9,13 @@ import tarfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from vision.config import ROOT, PROFILES
+from vision.config import ROOT, PROFILES, MODELS_3D, DEFAULT_3D_MODEL
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profiles", nargs="+", choices=PROFILES, default=["3d"])
+    parser.add_argument("--3d-models", nargs="+", choices=MODELS_3D, default=[DEFAULT_3D_MODEL], dest="models_3d")
     parser.add_argument(
         "--backends",
         nargs="+",
@@ -55,7 +56,9 @@ def main():
         text=True,
     ).stdout.encode()
     reports = []
-    for key in dict.fromkeys(k for p in args.profiles for k in PROFILES[p]):
+    keys = [key for profile in args.profiles for key in
+            (args.models_3d if profile == "3d" else PROFILES[profile])]
+    for key in dict.fromkeys(keys):
         directory = ROOT / "convert/artifacts" / key
         files.append(directory / "model.json")
         for backend in args.backends:

@@ -15,6 +15,7 @@ import time
 import numpy as np
 from rknn.api import RKNN
 from common import ARTIFACTS, ROOT, compare_detections, decode_split, draw, images, postprocess, preprocess, save_json, sha256
+from vision.config import MODELS, MODEL_DATA
 
 
 def check(status, operation):
@@ -24,7 +25,7 @@ def check(status, operation):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", choices=("board2d", "pieces2d", "chess3d"), required=True)
+    parser.add_argument("--model", choices=MODELS, required=True)
     parser.add_argument("--precision", choices=("fp16", "int8"), required=True)
     parser.add_argument("--algorithm", choices=("normal","mmse","kl_divergence"), default="normal")
     parser.add_argument("--limit", type=int, default=0, help="0: all selected test images")
@@ -48,7 +49,7 @@ def main():
         check(rknn.load_onnx(model=str(model_path)), "load_onnx")
         kwargs = {"do_quantization": quantized}
         if quantized:
-            kwargs["dataset"] = str(ROOT / "data" / args.model / "calibration.txt")
+            kwargs["dataset"] = str(ROOT / "data" / MODEL_DATA[args.model] / "calibration.txt")
         check(rknn.build(**kwargs), "build")
         rknn_path = out / "model.rknn"
         check(rknn.export_rknn(str(rknn_path)), "export_rknn")

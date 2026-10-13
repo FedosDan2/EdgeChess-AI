@@ -7,6 +7,8 @@ import * as THREE from 'three';
  const page=await browser.newPage({viewport:{width:1440,height:1100}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto(process.env.EDGECHESS_WEB_URL || 'http://127.0.0.1:8000');await page.waitForLoadState('networkidle');
  await page.click('#pause');await page.selectOption('#source-mode','3d');await page.uncheck('#boxes');
+ // Let resize/render and outstanding stream work settle before the pixel baseline.
+ await page.waitForTimeout(350);
  const rect=await page.locator('#viewport > canvas').first().boundingBox();
  const hit=await page.evaluate(({x,y})=>({id:document.elementFromPoint(x,y).id,preview:getComputedStyle(document.querySelector('#still-frame')).display}),{x:rect.x+rect.width/2,y:rect.y+rect.height/2});
  assert.equal(hit.id,'');assert.equal(hit.preview,'none');

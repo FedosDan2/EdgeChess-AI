@@ -129,7 +129,7 @@ def main():
     pipeline = (
         None
         if args.simulation
-        else Pipeline("3d", args.backend, confidence=args.confidence)
+        else Pipeline("3d", args.backend, confidence=args.confidence, model="chess3d")
     )
     simulated = (
         {

@@ -9,6 +9,9 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from vision.config import MODEL_DATA
 
 ROOT = Path(__file__).resolve().parent
 ARTIFACTS = ROOT / "artifacts"
@@ -25,7 +28,8 @@ def save_json(path, value):
 
 
 def images(split="test", model=None):
-    manifest = json.loads((ROOT / "data" / model / "manifest.json" if model else ROOT / "data/manifest.json").read_text(encoding="utf-8"))
+    dataset = MODEL_DATA[model] if model else None
+    manifest = json.loads((ROOT / "data" / dataset / "manifest.json" if model else ROOT / "data/manifest.json").read_text(encoding="utf-8"))
     return [ROOT / r["path"] for r in manifest["files"]
             if (r.get("split") == split or r["path"].startswith(f"data/{split}/images/"))
             and Path(r["path"]).suffix.lower() in (".jpg", ".jpeg", ".png")]

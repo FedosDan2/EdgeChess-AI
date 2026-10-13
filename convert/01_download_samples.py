@@ -12,7 +12,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from vision.config import MODELS, MODEL_DATA
 
 ROOT = Path(__file__).resolve().parent
 DATASET = "mmkoya/chessrender360"
@@ -236,15 +239,32 @@ def download_roboflow(model, version):
     return directory, version
 
 
+def register_synthetic(directory, calibration_count, test_count):
+    """Reference existing RGB images without copying the source dataset."""
+    directory = directory.resolve()
+    records = []
+    rng = random.Random(42)
+    for split, count in [("train", calibration_count), ("test", test_count)]:
+        paths = sorted(p for p in (directory / split / "images").iterdir()
+                       if p.suffix.lower() in (".png", ".jpeg", ".jpg"))
+        if len(paths) < count:
+            raise ValueError(f"Not enough {split} images in {directory}")
+        for path in rng.sample(paths, count):
+            records.append({"split": split, "path": os.path.relpath(path, ROOT),
+                            "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
+    save_manifest(MODEL_DATA["chess3d_m"], records, str(directory),
+                  note="Existing synthetic images; numerical conversion verification only")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--model", choices=("board2d", "pieces2d", "chess3d"), required=True
+        "--model", choices=MODELS, required=True
     )
     parser.add_argument(
         "--export",
         type=Path,
-        help="Unpacked Roboflow YOLOv8 export containing data.yaml",
+        help="Existing YOLO dataset: Roboflow or synthetic-2000",
     )
     parser.add_argument(
         "--version",
@@ -256,7 +276,10 @@ def main():
     args = parser.parse_args()
     if min(args.calibration_count, args.test_count) < 1:
         parser.error("Counts must be positive")
-    if args.model == "chess3d":
+    if args.model == "chess3d_m":
+        register_synthetic(args.export or ROOT.parent / "data/synthetic-2000",
+                           args.calibration_count, args.test_count)
+    elif args.model == "chess3d":
         chess360(args.calibration_count, args.test_count, args.version or 5)
     elif args.export:
         import_yolo(

@@ -1,13 +1,13 @@
 from pathlib import Path
 from time import perf_counter
-from .config import ROOT, PROFILES, BACKENDS
+from .config import ROOT, PROFILES, BACKENDS, profile_models
 from .inference import Model
 from .geometry import board_geometry, placement, board_crop
 
 
 class Pipeline:
     def __init__(
-        self, profile="2d", backend="onnx", directory=None, threads=4, confidence=0.5
+        self, profile="2d", backend="onnx", directory=None, threads=4, confidence=0.5, model=None
     ):
         if (
             profile not in PROFILES
@@ -22,9 +22,10 @@ class Pipeline:
             threads,
             confidence,
         )
+        self.keys = profile_models(profile, model)
         self.models = {}
         try:
-            for key in PROFILES[profile]:
+            for key in self.keys:
                 self.models[key] = Model(
                     key, Path(directory or ROOT / "convert/artifacts"), backend, threads
                 )
@@ -57,7 +58,7 @@ class Pipeline:
     def predict(self, image, orientation="white"):
         start = perf_counter()
         h, w = image.shape[:2]
-        key = PROFILES[self.profile][0]
+        key = self.keys[0]
         detections, timings = self.models[key].predict(image, self.confidence)
         stages = {key: dict(timings)}
         geometry_start = perf_counter()
@@ -99,6 +100,7 @@ class Pipeline:
             "profile": self.profile,
             "backend": self.backend,
             "status": status,
+            "model": " + ".join(self.keys),
             "detections": detections,
             "corners": board,
             "pieces": pieces,
