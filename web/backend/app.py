@@ -8,6 +8,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager, suppress
 import logging
+from time import monotonic
 from pathlib import Path
 import struct
 from time import perf_counter
@@ -17,6 +18,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPExcept
 from fastapi.staticfiles import StaticFiles
 
 from .inference import Detector
+from .advisor import AdviceRequest, GameStore, GameUpdate, StockfishAdvisor
 
 MAX_FRAME_BYTES = 2 * 1024 * 1024
 MAX_IMAGE_BYTES = 16 * 1024 * 1024
@@ -35,16 +37,23 @@ class LatestFrame:
         self.queue.put_nowait(frame)
 
 
-def create_app(detector_factory=Detector):
+def create_app(detector_factory=Detector, advisor_factory=StockfishAdvisor):
     @asynccontextmanager
     async def lifespan(app):
         executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="inference")
         app.state.executor = executor
         app.state.busy = False
+        app.state.games = GameStore()
+        app.state.advisor = advisor_factory()
+        app.state.advice_busy = False
+        advice_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stockfish")
+        app.state.advice_executor = advice_executor
         try:
             app.state.detector = await asyncio.get_running_loop().run_in_executor(executor, detector_factory)
             yield
         finally:
+            await asyncio.get_running_loop().run_in_executor(advice_executor, app.state.advisor.close)
+            advice_executor.shutdown(wait=True, cancel_futures=True)
             if hasattr(app.state, "detector") and hasattr(app.state.detector, "close"):
                 await asyncio.get_running_loop().run_in_executor(executor, app.state.detector.close)
             executor.shutdown(wait=True, cancel_futures=True)
@@ -53,7 +62,44 @@ def create_app(detector_factory=Detector):
 
     @app.get("/api/health")
     def health():
-        return {"status": "ready", **app.state.detector.describe()}
+        return {"status": "ready", **app.state.detector.describe(),
+                "stockfish": app.state.advisor.describe()}
+
+    @app.post("/api/game")
+    async def sync_game(update: GameUpdate):
+        try:
+            return app.state.games.sync(update)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.post("/api/advice")
+    async def advice(request: AdviceRequest):
+        if app.state.advice_busy:
+            raise HTTPException(409, "Stockfish уже рассчитывает ход")
+        try:
+            board = app.state.games.snapshot(request)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        app.state.advice_busy = True
+        try:
+            result = await asyncio.get_running_loop().run_in_executor(
+                app.state.advice_executor, app.state.advisor.best_move, board, request.game_id)
+            # Discard stale search results; never apply a suggested move.
+            try:
+                app.state.games.snapshot(request)
+            except ValueError as exc:
+                raise HTTPException(409, str(exc)) from exc
+            return {**result, "game_id": request.game_id, "revision": request.revision,
+                    "source": "history_verified_by_yolo" if request.require_vision else "history_only"}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logging.exception("Stockfish failed")
+            raise HTTPException(503, "Stockfish недоступен; проверьте бинарник и журнал сервера") from exc
+        finally:
+            with anyio.CancelScope(shield=True):
+                await asyncio.get_running_loop().run_in_executor(app.state.advice_executor, lambda: None)
+                app.state.advice_busy = False
 
     @app.websocket("/api/stream")
     async def stream(ws: WebSocket):
@@ -70,6 +116,8 @@ def create_app(detector_factory=Detector):
         started = perf_counter()
         worker = None
         orientation = ws.query_params.get("orientation", "white")
+        game_id = ws.query_params.get("game_id")
+        app.state.games.clear_vision(game_id)
 
         async def send(message):
             async with send_lock:
@@ -78,7 +126,7 @@ def create_app(detector_factory=Detector):
         async def consume():
             nonlocal processed
             while True:
-                frame_id, jpeg, arrival = await slot.queue.get()
+                frame_id, jpeg, arrival, game_revision, captured_at = await slot.queue.get()
                 def infer():
                     wait_ms = (perf_counter() - arrival) * 1000
                     result = (app.state.detector.predict(jpeg, orientation) if hasattr(app.state.detector, "configure")
@@ -88,9 +136,12 @@ def create_app(detector_factory=Detector):
                 try:
                     result = await asyncio.get_running_loop().run_in_executor(app.state.executor, infer)
                 except Exception:
+                    app.state.games.clear_vision(game_id)
                     logging.exception("Frame inference failed")
                     await send({"type": "frame_error", "id": frame_id, "message": "Cannot process frame"})
                     continue
+                app.state.games.observe(game_id, game_revision, result, captured_at)
+                result.update(game_id=game_id, game_revision=game_revision)
                 processed += 1
                 await send({"type": "result", "id": frame_id, **result,
                             "counters": {"received": received, "processed": processed,
@@ -114,7 +165,9 @@ def create_app(detector_factory=Detector):
                     return
                 last_id = frame_id
                 received += 1
-                slot.put((frame_id, data[8:], perf_counter()))
+                game = app.state.games.games.get(game_id)
+                slot.put((frame_id, data[8:], perf_counter(),
+                          game.update.revision if game else None, monotonic()))
                 await send({"type": "ack", "id": frame_id})
 
         receiver = None
@@ -152,6 +205,7 @@ def create_app(detector_factory=Detector):
                     # Native ORT keeps running after its asyncio future is cancelled.
                     await asyncio.get_running_loop().run_in_executor(app.state.executor, lambda: None)
                 finally:
+                    app.state.games.clear_vision(game_id)
                     app.state.busy = False
 
     @app.post("/api/analyze")

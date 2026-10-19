@@ -2,6 +2,7 @@ import "./style.css";
 import { BoardScene } from "./scene";
 import { percentile, scaleBox } from "./metrics.mjs";
 import type { PieceSymbol } from "chess.js";
+import { AdvisorPanel } from "./advisor";
 
 document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
   <header><a class="brand" href="/" aria-label="EdgeChess"><span class="brand-icon">♞</span> EDGE<span>CHESS</span><small>VISION LAB</small></a><div class="header-status"><span class="dot" id="status-dot"></span><span id="status">Подключение…</span><span class="tag" id="backend-tag">ONNX / CPU</span></div></header>
@@ -22,6 +23,14 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
 <label>Проверить JPEG <input id="image-file" type="file" accept="image/jpeg"></label>
 <button id="analyze" class="quiet">Проверить выбранный кадр</button>
 <button id="save-frame" class="quiet">↓ Текущий кадр JPEG</button>
+</section><section class="card"><h2>Подсказка Stockfish</h2>
+<label>Помощник играет за <select id="advisor-side"><option value="w">Белых</option><option value="b">Чёрных</option></select></label>
+<label class="checkbox"><input id="advisor-vision" type="checkbox" checked><span>Требовать совпадения с YOLO</span></label>
+<button id="ask-advice" disabled>Подсказать ход</button>
+<button id="sync-game" class="quiet">Повторить синхронизацию</button>
+<p id="advice-status" role="status">Синхронизация истории…</p><p id="advice-result" role="status"></p>
+<small id="game-history"></small>
+<p class="note">История проверяется сервером. Подсказка не делает ход. Отключение проверки YOLO — явный режим отладки.</p>
 </section><section class="card"><h2>Распознанная позиция</h2><p id="vision-status">Ожидаем кадр</p>
 <code id="recognized-placement"></code><p id="accuracy"></p>
 <label>Чей ход <select id="active-color"><option value="w">Белые</option><option value="b">Чёрные</option></select></label>
@@ -35,6 +44,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
 const el = <T extends HTMLElement = HTMLElement>(id: string) =>
   document.getElementById(id) as T;
 const board = new BoardScene(el("viewport"));
+const advisor = new AdvisorPanel(board.chess);
 const overlay = el<HTMLCanvasElement>("overlay");
 const context = overlay.getContext("2d")!;
 const stillFrame=el<HTMLCanvasElement>("still-frame");
@@ -46,6 +56,7 @@ board.onChange = () => {
     : board.chess.isDraw()
       ? "Ничья"
       : `Ход ${board.chess.turn() === "w" ? "белых" : "чёрных"}${board.chess.isCheck() ? " · шах" : ""}`;
+  advisor.update();
 };
 board.onMessage = (message) => {
   el("move-help").textContent = message;
@@ -84,6 +95,7 @@ type Result = {
   counters: { received: number; processed: number; replaced: number };
   session_fps: number;
   profile: string; backend: string; status: string; placement: string | null; warnings: string[];
+  game_revision?: number;
   pieces: (Detection & { square: string; symbol: string })[]; stages: Record<string, Record<string, number>>;
 };
 type Sample = {
@@ -195,6 +207,7 @@ function connect() {
       status("Поток активен", true);
       renderDetections(data.detections);
       renderRecognition(data, selection("source-mode") === data.profile, framePositions.get(data.id));
+      advisor.observe(data, framePositions.get(data.id));
       for (const id of framePositions.keys()) if (id <= data.id) framePositions.delete(id);
     }
   };
@@ -203,6 +216,7 @@ function connect() {
     ready = false;
     awaitingAck = false;
     lastResult = null;
+    advisor.invalidateVision();
     renderDetections([]);
     if (paused) return;
     status(
@@ -489,6 +503,7 @@ function renderFen() {
 }
 for (const id of ["active-color","castling","en-passant"]) el(id).onchange = renderFen;
 function appearance() {
+  advisor.invalidateVision();
   board.setAppearance(selection("source-mode") as "2d" | "3d",selection("theme"),selection("shape"),Number(el<HTMLInputElement>("light").value));
 }
 for (const id of ["source-mode","theme","shape","light"]) el(id).onchange = appearance;
@@ -503,6 +518,7 @@ el<HTMLInputElement>("piece-set").onchange = async e => {
   } catch(error) { board.onMessage(String(error)); }
 };
 function reconnect() {
+  advisor.invalidateVision();
   if (reconnectTimer) clearTimeout(reconnectTimer);
   ++generation; socket?.close(); ready=false; lastResult=null; resultPlacement=null; renderFen();
   framePositions.clear(); pending.clear();
@@ -511,6 +527,7 @@ function reconnect() {
 }
 function processingQuery() {
   const query = new URLSearchParams({profile:selection("profile"),backend:selection("backend"),orientation:selection("orientation")});
+  query.set("game_id", advisor.gameId);
   if (selection("profile") === "3d") query.set("model",selection("model"));
   return query;
 }
@@ -564,6 +581,7 @@ async function initialize() {
     const response=await fetch("/api/health");
     if (!response.ok) throw new Error("Сервер не готов");
     const data=await response.json();
+    advisor.setAvailable(Boolean(data.stockfish?.available));
     const models=el<HTMLSelectElement>("model");
     models.replaceChildren(...Object.entries(data.model_choices as Record<string,string>).map(([key,label])=>new Option(label,key)));
     if (data.profile === "3d") models.value=data.models[0].key;
