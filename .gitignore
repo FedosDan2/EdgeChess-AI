@@ -1,1 +1,17 @@
+.venv/
+.python/
+.cache/
+data/
+artifacts/
+__pycache__/
+*.tar
+*.pt
+node_modules/
+dist/
+.pytest_cache/
+web/benchmark.json
 
+!CV_2D/weights/*.pt
+!CV_3D/weights/*.pt
+
+.env
