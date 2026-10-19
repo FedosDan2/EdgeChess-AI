@@ -15,3 +15,9 @@ web/benchmark.json
 !CV_3D/weights/*.pt
 
 .env
+
+# Outputs of the training scripts imported from cv.
+runs/
+CV_3D/dataset/
+CV_3D/synthetic-*/
+.ipynb_checkpoints/
