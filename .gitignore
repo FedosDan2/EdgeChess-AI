@@ -1,1 +1,23 @@
+.venv/
+.python/
+.cache/
+data/
+artifacts/
+__pycache__/
+*.tar
+*.pt
+node_modules/
+dist/
+.pytest_cache/
+web/benchmark.json
 
+!CV_2D/weights/*.pt
+!CV_3D/weights/*.pt
+
+.env
+
+# Outputs of the training scripts imported from cv.
+runs/
+CV_3D/dataset/
+CV_3D/synthetic-*/
+.ipynb_checkpoints/
