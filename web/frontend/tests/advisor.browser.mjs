@@ -5,19 +5,24 @@ import * as THREE from 'three';
 
 const browser = await chromium.launch({headless:true,args:['--no-sandbox','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 try {
-  const page = await browser.newPage({viewport:{width:1440,height:1100}});
+  const page = await browser.newPage({viewport:{width:1024,height:1100}});
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.goto(process.env.EDGECHESS_WEB_URL || 'http://127.0.0.1:8000');
+  // Software WebGL and CPU YOLO share the test machine; avoid oversampling.
+  await page.selectOption('#capture-fps','10');
   await page.waitForFunction(() => document.querySelector('#game-history').textContent.includes('История: 0'));
   await page.waitForFunction(() => document.querySelector('#status').textContent.includes('Поток активен'), null, {timeout:30000});
   // A live real YOLO stream continues during real CPU engine requests.
-  await page.waitForFunction(() => !document.querySelector('#ask-advice').disabled);
   const before = await page.locator('#fen').inputValue();
+  const ask = await page.locator('#ask-advice').boundingBox();
+  await page.waitForFunction(() => !document.querySelector('#ask-advice').disabled);
   const request = page.waitForResponse(r => r.url().endsWith('/api/advice'));
-  await page.click('#ask-advice');
+  // Avoid extra animation-frame actionability waits on software WebGL: the
+  // server intentionally requires fresh observations at the moment of search.
+  await page.mouse.click(ask.x+ask.width/2,ask.y+ask.height/2);
   const response = await request;
-  assert.equal(response.status(), 200);
+  assert.equal(response.status(), 200, await response.text());
   const advice = await response.json();
   assert.equal(advice.source, 'history_verified_by_yolo');
   assert(new Chess(before).moves({verbose:true}).some(m => m.from+m.to+(m.promotion||'') === advice.move_uci));

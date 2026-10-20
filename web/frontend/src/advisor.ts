@@ -30,6 +30,7 @@ export class AdvisorPanel {
   clearAdvice() {
     ++this.adviceGeneration;
     this.element("advice-result").textContent = "";
+    this.element("advice-meta").textContent = "";
     this.showAdvice(null);
   }
 
@@ -109,8 +110,9 @@ export class AdvisorPanel {
       if (revision !== this.revision || generation !== this.adviceGeneration) return;
       if (!response.ok) throw new Error(typeof result.detail === "string" ? result.detail : "Ошибка расчёта");
       this.element("advice-result").textContent =
-        `${result.move_san} · ${result.move_uci} · ${result.engine} · ${Math.round(result.elapsed_ms)} мс` +
+        `${result.move_san} · ${result.move_uci}` +
         ` · ${result.source === "history_only" ? "только история UI" : "история подтверждена YOLO"}. Ход не применён.`;
+      this.element("advice-meta").textContent = `${result.engine} · расчёт ${Math.round(result.elapsed_ms)} мс`;
       this.showAdvice(result.move_uci);
     } catch (error) {
       if (revision === this.revision && generation === this.adviceGeneration) this.element("advice-result").textContent = String(error);

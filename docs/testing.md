@@ -24,14 +24,17 @@ cd web/frontend
 npx playwright install chromium
 EDGECHESS_WEB_URL=http://127.0.0.1:8000 npm run test:browser
 EDGECHESS_WEB_URL=http://127.0.0.1:8000 npm run test:advisor
+npm run test:layout
 npm run test:dataset
 npm run test:highlight
 ```
 
 Для `test:browser` и `test:advisor` запустите [сервер](local.md).
 `test:advisor` требует настоящие YOLOv8m ONNX и Stockfish, а также совпадение
-распознанной стартовой позиции с доской. `test:dataset` и `test:highlight`
-запускают сервер самостоятельно. `test:highlight` проверяет подсветку 2D/3D,
+распознанной стартовой позиции с доской. `test:dataset`, `test:highlight` и
+`test:layout` запускают сервер самостоятельно. `test:layout` проверяет
+адаптивную компоновку и статусы распознавания на фиксированных данных.
+`test:highlight` проверяет подсветку 2D/3D,
 сброс после хода, отсутствие мерцания при захвате и исключение отметок из входа YOLO.
 `test:models` дополнительно требует экспорта обеих 3D-моделей и 2D-каскада.
 

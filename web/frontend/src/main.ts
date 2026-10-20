@@ -1,45 +1,11 @@
 import "./style.css";
 import { BoardScene } from "./scene";
-import { percentile, scaleBox } from "./metrics.mjs";
+import { percentile, scaleBox, comparePlacements } from "./metrics.mjs";
 import type { PieceSymbol } from "chess.js";
 import { AdvisorPanel } from "./advisor";
+import { layout } from "./layout";
 
-document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
-  <header><a class="brand" href="/" aria-label="EdgeChess"><span class="brand-icon">♞</span> EDGE<span>CHESS</span><small>VISION LAB</small></a><div class="header-status"><span class="dot" id="status-dot"></span><span id="status">Подключение…</span><span class="tag" id="backend-tag">ONNX / CPU</span></div></header>
-  <main><section class="intro"><div><p class="eyebrow">ВИРТУАЛЬНАЯ КАМЕРА · 01</p><h1>Доска в поле зрения.</h1><p class="subtitle">Меняйте позицию и ракурс. Наблюдайте за распознаванием в реальном времени.</p></div><span class="live-badge"><i></i> LIVE INFERENCE</span></section>
-  <div class="workspace"><section class="board-panel"><div class="panel-heading"><span><i class="small-dot"></i> Интерактивная сцена</span><span id="turn">Ход белых</span></div><div id="viewport"><canvas id="still-frame" hidden></canvas><canvas id="overlay" aria-label="Рамки распознавания"></canvas><div class="scene-chip">CAM 01 <span>960 × 720</span></div><div id="scene-message" role="status"></div></div><div class="board-toolbar"><label class="checkbox"><input id="boxes" type="checkbox" checked><span>Рамки и классы</span></label><button id="home" class="quiet">↺ Сбросить ракурс</button><span class="toolbar-hint">Потяните для вращения · колесо для масштаба</span></div><div class="position"><label for="fen">ПОЗИЦИЯ / FEN</label><div class="fen-row"><input id="fen" spellcheck="false" aria-label="Позиция FEN"><button id="apply">Применить</button></div><div class="position-actions"><button id="reset" class="quiet">Начальная позиция</button><label>Превращение пешки <select id="promotion"><option value="q">Ферзь</option><option value="r">Ладья</option><option value="b">Слон</option><option value="n">Конь</option></select></label></div><p id="move-help">Нажмите на фигуру, затем на клетку назначения. Вы играете за обе стороны.</p></div></section>
-  <aside><section class="card"><h2>Сцена и обработка</h2>
-<label>Источник <select id="source-mode"><option value="3d">3D-сцена</option><option value="2d">2D-доска</option></select></label>
-<label>Пайплайн <select id="profile"><option value="3d">3D · углы и фигуры</option><option value="2d">2D · доска и обрезка</option></select></label>
-<label id="model-label">Модель 3D <select id="model"></select></label>
-<label>Исполнитель <select id="backend"><option value="onnx">ONNX CPU</option><option value="rknn_fp16">RKNN FP16 · NPU</option><option value="rknn_int8">RKNN INT8 · NPU</option></select></label>
-<label>Ориентация 2D <select id="orientation"><option value="white">Белые снизу</option><option value="black">Чёрные снизу</option></select></label>
-<label>Материалы <select id="theme"><option value="wood">Дерево</option><option value="marble">Мрамор</option><option value="walnut">Орех</option></select></label>
-<label>Фигуры 3D <select id="shape"><option value="classic">Классические</option><option value="slim">Узкие</option><option value="glb" disabled>Из GLB</option></select></label>
-<label>Свет <input id="light" type="range" min="1" max="6" step="0.5" value="3.5"></label>
-<label>Набор фигур GLB <input id="piece-set" type="file" accept=".glb"></label>
-<small>GLB: 12 объектов wP…wK и bP…bK, ось Y вверх. Наборы сцен не повторяют ChessRender360 в точности.</small>
-<button id="pause" class="quiet">Приостановить поток</button>
-<label>Проверить JPEG <input id="image-file" type="file" accept="image/jpeg"></label>
-<button id="analyze" class="quiet">Проверить выбранный кадр</button>
-<button id="save-frame" class="quiet">↓ Текущий кадр JPEG</button>
-</section><section class="card"><h2>Подсказка Stockfish</h2>
-<label>Помощник играет за <select id="advisor-side"><option value="w">Белых</option><option value="b">Чёрных</option></select></label>
-<label class="checkbox"><input id="advisor-vision" type="checkbox" checked><span>Требовать совпадения с YOLO</span></label>
-<button id="ask-advice" disabled>Подсказать ход</button>
-<button id="sync-game" class="quiet">Повторить синхронизацию</button>
-<p id="advice-status" role="status">Синхронизация истории…</p><p id="advice-result" role="status"></p>
-<small id="game-history"></small>
-<p class="note">Подсказка: исходная клетка — синяя, целевая — зелёная. Ход не выполняется. Отключение проверки YOLO — режим отладки.</p>
-</section><section class="card"><h2>Распознанная позиция</h2><p id="vision-status">Ожидаем кадр</p>
-<code id="recognized-placement"></code><p id="accuracy"></p>
-<label>Чей ход <select id="active-color"><option value="w">Белые</option><option value="b">Чёрные</option></select></label>
-<label>Рокировка <input id="castling" value="-" maxlength="4"></label>
-<label>Взятие на проходе <input id="en-passant" value="-" maxlength="2"></label>
-<p id="recognized-fen"></p><small>Расстановка — результат сети. Остальные поля FEN задаются вручную; счётчики — 0 и 1.</small>
-</section><section class="card"><div class="card-title"><h2>Производительность</h2><span class="tag">LIVE</span></div><div class="hero-metric"><strong id="fps">—</strong><span>кадров/с<br><small>обработано · окно 5 с</small></span><svg id="spark" viewBox="0 0 260 42" preserveAspectRatio="none"><polyline points="" /></svg></div><div class="metric-grid"><div><span>Инференс · p50</span><strong id="infer">—</strong></div><div><span>Инференс · p95</span><strong id="p95">—</strong></div><div><span>Возраст · p50</span><strong id="age">—</strong></div><div><span>Возраст · p95</span><strong id="age95">—</strong></div></div><div class="timing-list"><div><span>Подготовка / NMS</span><b id="stages">—</b></div><div><span>Ожидание обработки</span><b id="queue">—</b></div><div><span>Отправлено / заменено сервером</span><b id="counts">0 / 0</b></div><div><span>Пропущено до отправки</span><b id="skipped">0</b></div><div><span>Отрисовка / захват, FPS</span><b id="render-fps">—</b></div></div><label class="capture-label" for="capture-fps">Частота виртуальной камеры <select id="capture-fps"><option value="10">10 FPS</option><option value="15">15 FPS</option><option value="30" selected>30 FPS</option><option value="60">60 FPS</option></select></label><p class="note">Свежие кадры заменяют ожидающие. Рамки сохраняются между результатами и могут отставать при движении.</p></section>
-  <section class="card detections-card"><div class="card-title"><h2>Распознанные фигуры</h2><span id="detection-count" class="count">0</span></div><div class="table-heading"><span>КЛАСС</span><span>CONFIDENCE</span></div><div id="detections"><p class="empty">Ожидаем первый результат модели</p></div></section>
-  <section class="card model-card"><p class="eyebrow">МОДЕЛЬ И СЕССИЯ</p><strong id="model-name">Загрузка модели…</strong><p id="model-info">CPU · batch 1 · прогрев перед замерами</p><div class="export-row"><button id="json" class="quiet">↓ JSON</button><button id="csv" class="quiet">↓ CSV</button></div><small>Метрики последних 5 минут. Точность на этой сцене зависит от обучающих данных.</small></section></aside></div><footer><span>EDGECHESS / VIRTUAL CAMERA</span><span>Python 3.10 · ONNX Runtime · Linux</span></footer></main>`;
+document.querySelector<HTMLDivElement>("#app")!.innerHTML = layout;
 
 const el = <T extends HTMLElement = HTMLElement>(id: string) =>
   document.getElementById(id) as T;
@@ -57,6 +23,7 @@ board.onChange = () => {
       ? "Ничья"
       : `Ход ${board.chess.turn() === "w" ? "белых" : "чёрных"}${board.chess.isCheck() ? " · шах" : ""}`;
   advisor.update();
+  clearRecognitionSummary("Позиция изменилась · ожидаем свежий кадр");
 };
 board.onMessage = (message) => {
   el("move-help").textContent = message;
@@ -159,6 +126,7 @@ function connect() {
   awaitingAck = false;
   pending.clear();
   lastResult = null;
+  clearRecognitionSummary("Подключение к потоку…");
   const ws = new WebSocket(
     `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/stream?${processingQuery()}`,
   );
@@ -219,6 +187,7 @@ function connect() {
     awaitingAck = false;
     lastResult = null;
     advisor.invalidateVision();
+    clearRecognitionSummary("Нет соединения с потоком");
     renderDetections([]);
     if (paused) return;
     status(
@@ -440,6 +409,7 @@ setInterval(() => {
   if (lastResult && (!paused && now - lastReceived > 2000)) {
     lastResult = null;
     renderDetections([]);
+    clearRecognitionSummary("Нет свежего результата");
     if (ready) status("Нет свежих результатов");
   }
 }, 500);
@@ -490,12 +460,33 @@ function download(format: "json" | "csv") {
 el("json").onclick = () => download("json");
 el("csv").onclick = () => download("csv");
 const framePositions = new Map<number, string>();
+function clearRecognitionSummary(message: string) {
+  el("recognition-score").textContent = "—";
+  el("recognition-badge").textContent = "Ожидание";
+  el("recognition-badge").dataset.state = "neutral";
+  el("accuracy").textContent = message;
+}
 function renderRecognition(result: Result, fromScene: boolean, expected?: string) {
   resultPlacement = result.placement;
   el("vision-status").textContent = `${result.profile} / ${result.backend}: ${result.status}${result.warnings?.length ? " · " + result.warnings.join(", ") : ""}`;
   el("recognized-placement").textContent = result.placement ?? "Нет распознанной расстановки";
-  el("accuracy").textContent = fromScene && expected && result.placement
-    ? (result.placement === expected ? "Расстановка совпала с кадром сцены" : "Расстановка отличается от кадра сцены") : "";
+  const comparison = fromScene ? comparePlacements(result.placement, expected) : null;
+  const current = expected === board.chess.fen().split(" ")[0];
+  const badge = el("recognition-badge");
+  if (comparison && current) {
+    const exact = comparison.correct === comparison.total;
+    const reliable = result.status === "ok" && !result.warnings?.length;
+    el("recognition-score").textContent = `${comparison.correct}/${comparison.total}`;
+    badge.textContent = !reliable ? "Проверьте" : exact ? "Совпадает" : "Есть отличия";
+    badge.dataset.state = exact && reliable ? "ok" : "warning";
+    el("accuracy").textContent = !reliable ? "Есть предупреждения распознавания"
+      : exact ? "Расстановка совпала с кадром сцены" : "Расстановка отличается от кадра сцены";
+  } else {
+    clearRecognitionSummary(!fromScene ? "Кадр не сравнивается с виртуальной доской"
+      : !current ? "Ожидаем кадр текущей позиции" : "Расстановка не распознана");
+    badge.textContent = !fromScene ? "Без сравнения" : !current ? "Ожидание" : "Нет позиции";
+    badge.dataset.state = fromScene && current ? "warning" : "neutral";
+  }
   renderFen();
 }
 function renderFen() {
@@ -521,6 +512,7 @@ el<HTMLInputElement>("piece-set").onchange = async e => {
 };
 function reconnect() {
   advisor.invalidateVision();
+  clearRecognitionSummary(paused ? "Поток приостановлен" : "Настройки изменились · ожидаем кадр");
   if (reconnectTimer) clearTimeout(reconnectTimer);
   ++generation; socket?.close(); ready=false; lastResult=null; resultPlacement=null; renderFen();
   framePositions.clear(); pending.clear();
