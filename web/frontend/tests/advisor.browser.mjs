@@ -22,7 +22,9 @@ try {
   assert.equal(advice.source, 'history_verified_by_yolo');
   assert(new Chess(before).moves({verbose:true}).some(m => m.from+m.to+(m.promotion||'') === advice.move_uci));
   assert.equal(await page.locator('#fen').inputValue(), before, 'Advice must not apply a move');
+  await page.waitForFunction(move => document.querySelector('#viewport > canvas').dataset.adviceMove === move, advice.move_uci);
   await page.uncheck('#advisor-vision');
+  assert.equal(await page.locator('#viewport > canvas').first().getAttribute('data-advice-move'), null);
   await page.selectOption('#advisor-side', 'b');
   await page.waitForFunction(() => document.querySelector('#advice-status').textContent.includes('другой стороны'));
   assert(await page.locator('#ask-advice').isDisabled());
@@ -43,17 +45,39 @@ try {
   await page.click('#ask-advice');
   await page.waitForFunction(() => document.querySelector('#advice-result').textContent.includes('Ход не применён'));
   assert((await page.locator('#advice-result').textContent()).includes('только история UI'));
+  assert(await page.locator('#viewport > canvas').first().getAttribute('data-advice-move'));
   // Custom FEN starts a fresh history; terminal positions disable the action.
   await page.locator('#fen').fill('7k/6Q1/6K1/8/8/8/8/8 b - - 0 1');
   await page.click('#apply');
   await page.waitForFunction(() => document.querySelector('#advice-status').textContent === 'Партия завершена');
   assert(await page.locator('#ask-advice').isDisabled());
+  assert.equal(await page.locator('#viewport > canvas').first().getAttribute('data-advice-move'), null);
   await page.click('#reset');
   await page.selectOption('#advisor-side', 'w');
   await page.check('#advisor-vision');
   await page.click('#pause');
   await page.waitForFunction(() => document.querySelector('#ask-advice').disabled);
+  // Changing a setting away and back must invalidate an in-flight result too.
+  await page.uncheck('#advisor-vision');
+  await page.waitForFunction(() => !document.querySelector('#ask-advice').disabled);
+  let captured, release;
+  const received = new Promise(resolve => { captured = resolve; });
+  const hold = new Promise(resolve => { release = resolve; });
+  await page.route('**/api/advice', async route => {
+    const response = await route.fetch();
+    captured();
+    await hold;
+    await route.fulfill({response});
+  });
+  await page.click('#ask-advice');
+  await received;
+  await page.check('#advisor-vision');
+  await page.uncheck('#advisor-vision');
+  release();
+  await page.waitForFunction(() => !document.querySelector('#ask-advice').disabled);
+  assert.equal(await page.locator('#viewport > canvas').first().getAttribute('data-advice-move'), null);
+  assert.equal(await page.locator('#advice-result').textContent(), '');
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({realStockfish:advice.engine,move:advice.move_uci,realYoloVerified:true,noAutoMove:true,
-    wrongSideBlocked:true,historyAfterMove:true,customFenAndMate:true,pausedVisionBlocked:true,errors}));
+    wrongSideBlocked:true,historyAfterMove:true,customFenAndMate:true,pausedVisionBlocked:true,highlight:true,staleHighlightBlocked:true,errors}));
 } finally { await browser.close(); }

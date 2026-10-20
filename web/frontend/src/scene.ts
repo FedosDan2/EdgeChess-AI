@@ -122,6 +122,7 @@ export class BoardScene {
   readonly controls: OrbitControls;
   readonly pieces = new THREE.Group();
   readonly markers = new THREE.Group();
+  readonly advice = new THREE.Group();
   mode: "2d" | "3d" = "3d";
   theme = "wood";
   shape = "classic";
@@ -132,6 +133,7 @@ export class BoardScene {
   private selected: Square | null = null;
   private down = { x: 0, y: 0 };
   private tiles: THREE.Object3D[] = [];
+  private adviceFen: string | null = null;
   onChange: () => void = () => {};
   onMessage: (message: string) => void = () => {};
   promotion: PieceSymbol = "q";
@@ -204,7 +206,7 @@ export class BoardScene {
         this.tiles.push(tile);
         this.scene.add(tile);
       }
-    this.scene.add(this.pieces, this.markers);
+    this.scene.add(this.pieces, this.markers, this.advice);
     this.rebuild();
     this.renderer.domElement.addEventListener("pointerdown", (e) => {
       this.down = { x: e.clientX, y: e.clientY };
@@ -338,7 +340,7 @@ export class BoardScene {
   }
   private clear(group: THREE.Group) {
     group.traverse((object) => {
-      if (object instanceof THREE.Mesh) {
+      if (object instanceof THREE.Mesh || object instanceof THREE.Line) {
         object.geometry.dispose();
         const materials = Array.isArray(object.material)
           ? object.material
@@ -348,7 +350,36 @@ export class BoardScene {
     });
     group.clear();
   }
+  showAdvice(uci: string | null) {
+    this.clear(this.advice);
+    this.adviceFen = null;
+    delete this.renderer.domElement.dataset.adviceMove;
+    if (!uci) return;
+    const move = this.chess.moves({ verbose: true }).find(m => m.from + m.to + (m.promotion || "") === uci);
+    if (!move) return;
+    this.adviceFen = this.chess.fen();
+    this.renderer.domElement.dataset.adviceMove = uci;
+    for (const [square, color] of [[move.from, 0x28b4ff], [move.to, 0x44df83]] as const) {
+      const tile = new THREE.Mesh(
+        new THREE.PlaneGeometry(.94, .94),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: .55, depthWrite: false }),
+      );
+      tile.rotation.x = -Math.PI / 2;
+      tile.position.set(square.charCodeAt(0) - 100.5, .025, 4.5 - Number(square[1]));
+      this.advice.add(tile);
+      const outline = new THREE.LineLoop(
+        new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(-.47, 0, -.47), new THREE.Vector3(.47, 0, -.47),
+          new THREE.Vector3(.47, 0, .47), new THREE.Vector3(-.47, 0, .47),
+        ]),
+        new THREE.LineBasicMaterial({ color }),
+      );
+      outline.position.copy(tile.position).add(new THREE.Vector3(0, .001, 0));
+      this.advice.add(outline);
+    }
+  }
   rebuild() {
+    if (this.adviceFen !== this.chess.fen()) this.showAdvice(null);
     this.clear(this.pieces);
     this.clear(this.markers);
     this.selected = null;
@@ -410,11 +441,18 @@ export class BoardScene {
     this.renderer.render(this.scene, this.camera);
   }
   async snapshot() {
-    // UI move hints are excluded from the virtual camera image.
-    this.markers.visible = false;
-    this.renderer.render(this.scene, this.camera);
-    const bitmap = createImageBitmap(this.renderer.domElement);
-    this.markers.visible = true;
-    return bitmap;
+    // Neither legal-move hints nor Stockfish highlights enter YOLO's input.
+    const markersVisible = this.markers.visible, adviceVisible = this.advice.visible;
+    try {
+      this.markers.visible = this.advice.visible = false;
+      this.renderer.render(this.scene, this.camera);
+      return await createImageBitmap(this.renderer.domElement);
+    } finally {
+      this.markers.visible = markersVisible;
+      this.advice.visible = adviceVisible;
+      if ((markersVisible && this.markers.children.length) || (adviceVisible && this.advice.children.length)) {
+        this.renderer.render(this.scene, this.camera);
+      }
+    }
   }
 }

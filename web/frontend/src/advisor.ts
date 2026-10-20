@@ -11,12 +11,13 @@ export class AdvisorPanel {
   private visionMatches = 0;
   private visionAt = 0;
   private syncError = "";
+  private adviceGeneration = 0;
   private element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
-  constructor(private chess: Chess) {
+  constructor(private chess: Chess, private showAdvice: (uci: string | null) => void) {
     this.element("advisor-side").onchange = () => this.update();
     this.element("advisor-vision").onchange = () => {
-      this.element("advice-result").textContent = "";
+      this.clearAdvice();
       this.render();
     };
     this.element("ask-advice").onclick = () => void this.ask();
@@ -25,6 +26,12 @@ export class AdvisorPanel {
   }
 
   setAvailable(available: boolean) { this.available = available; this.render(); }
+
+  clearAdvice() {
+    ++this.adviceGeneration;
+    this.element("advice-result").textContent = "";
+    this.showAdvice(null);
+  }
 
   update() {
     const history = this.chess.history({ verbose: true });
@@ -38,7 +45,7 @@ export class AdvisorPanel {
     this.fingerprint = fingerprint;
     const revision = ++this.revision;
     this.invalidateVision();
-    this.element("advice-result").textContent = "";
+    this.clearAdvice();
     this.syncError = "";
     this.render();
     void fetch("/api/game", {
@@ -91,20 +98,22 @@ export class AdvisorPanel {
     const revision = this.revision;
     const requireVision = this.element<HTMLInputElement>("advisor-vision").checked;
     this.thinking = true; this.render();
-    this.element("advice-result").textContent = "";
+    this.clearAdvice();
+    const generation = this.adviceGeneration;
     try {
       const response = await fetch("/api/advice", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ game_id: this.gameId, revision, require_vision: requireVision }),
       });
       const result = await response.json();
-      if (revision !== this.revision || requireVision !== this.element<HTMLInputElement>("advisor-vision").checked) return;
+      if (revision !== this.revision || generation !== this.adviceGeneration) return;
       if (!response.ok) throw new Error(typeof result.detail === "string" ? result.detail : "Ошибка расчёта");
       this.element("advice-result").textContent =
         `${result.move_san} · ${result.move_uci} · ${result.engine} · ${Math.round(result.elapsed_ms)} мс` +
         ` · ${result.source === "history_only" ? "только история UI" : "история подтверждена YOLO"}. Ход не применён.`;
+      this.showAdvice(result.move_uci);
     } catch (error) {
-      if (revision === this.revision) this.element("advice-result").textContent = String(error);
+      if (revision === this.revision && generation === this.adviceGeneration) this.element("advice-result").textContent = String(error);
     } finally { this.thinking = false; this.render(); }
   }
 }

@@ -38,9 +38,9 @@ def main():
         ROOT / "web/uv.lock",
         ROOT / "tools/install_firefly.sh",
         ROOT / "tools/run_firefly.sh",
-        ROOT / "STOCKFISH.md",
-        ROOT / "web/STOCKFISH_REPORT.md",
-        ROOT / "convert/README.md",
+        ROOT / "README.md",
+        ROOT / "web/frontend/public/pieces/cburnett/LICENSE.md",
+        *ROOT.glob("docs/*.md"),
     ]
     dist = ROOT / "web/frontend/dist"
     if not (dist / "index.html").exists():

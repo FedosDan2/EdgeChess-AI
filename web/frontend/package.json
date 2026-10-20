@@ -11,7 +11,8 @@
     "dataset": "node scripts/generate-dataset.mjs",
     "test:dataset": "node tests/dataset.browser.mjs",
     "test:models": "node tests/models.browser.mjs",
-    "test:advisor": "node tests/advisor.browser.mjs"
+    "test:advisor": "node tests/advisor.browser.mjs",
+    "test:highlight": "node tests/highlight.browser.mjs"
   },
   "dependencies": {
     "chess.js": "1.4.0",

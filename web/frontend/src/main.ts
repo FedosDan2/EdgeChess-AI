@@ -30,7 +30,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
 <button id="sync-game" class="quiet">Повторить синхронизацию</button>
 <p id="advice-status" role="status">Синхронизация истории…</p><p id="advice-result" role="status"></p>
 <small id="game-history"></small>
-<p class="note">История проверяется сервером. Подсказка не делает ход. Отключение проверки YOLO — явный режим отладки.</p>
+<p class="note">Подсказка: исходная клетка — синяя, целевая — зелёная. Ход не выполняется. Отключение проверки YOLO — режим отладки.</p>
 </section><section class="card"><h2>Распознанная позиция</h2><p id="vision-status">Ожидаем кадр</p>
 <code id="recognized-placement"></code><p id="accuracy"></p>
 <label>Чей ход <select id="active-color"><option value="w">Белые</option><option value="b">Чёрные</option></select></label>
@@ -44,7 +44,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
 const el = <T extends HTMLElement = HTMLElement>(id: string) =>
   document.getElementById(id) as T;
 const board = new BoardScene(el("viewport"));
-const advisor = new AdvisorPanel(board.chess);
+const advisor = new AdvisorPanel(board.chess, uci => board.showAdvice(uci));
 const overlay = el<HTMLCanvasElement>("overlay");
 const context = overlay.getContext("2d")!;
 const stillFrame=el<HTMLCanvasElement>("still-frame");
@@ -64,6 +64,7 @@ board.onMessage = (message) => {
 board.onChange();
 el("home").onclick = () => board.home();
 el("reset").onclick = () => {
+  advisor.clearAdvice();
   board.chess.reset();
   board.rebuild();
   board.onMessage("Начальная позиция восстановлена");
@@ -71,6 +72,7 @@ el("reset").onclick = () => {
 el("apply").onclick = () => {
   try {
     board.chess.load(fen.value.trim());
+    advisor.clearAdvice();
     board.rebuild();
     board.onMessage("Позиция загружена");
   } catch {
