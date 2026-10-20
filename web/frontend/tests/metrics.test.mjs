@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { percentile, scaleBox } from "../src/metrics.mjs";
+import { percentile, scaleBox, comparePlacements } from "../src/metrics.mjs";
 import { Chess } from "chess.js";
 
 test("metrics use percentiles and handle missing samples", () => {
@@ -25,4 +25,14 @@ test("both sides can move; castling and promotion are supported", () => {
   game.load("7k/P7/8/8/8/8/8/7K w - - 0 1");
   game.move({ from: "a7", to: "a8", promotion: "n" });
   assert.equal(game.get("a8").type, "n");
+});
+test("recognition compares all 64 cells without treating missing positions as empty boards", () => {
+  const game = new Chess();
+  const initial = game.fen().split(" ")[0];
+  assert.deepEqual(comparePlacements(initial, initial), { correct: 64, total: 64 });
+  game.move("e4");
+  assert.deepEqual(comparePlacements(game.fen().split(" ")[0], initial), { correct: 62, total: 64 });
+  assert.equal(comparePlacements(null, initial), null);
+  assert.equal(comparePlacements("8/8/8/8/8/8/8/9", initial), null);
+  assert.equal(comparePlacements("not a position", initial), null);
 });

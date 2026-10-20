@@ -3,6 +3,7 @@
 import argparse
 import io
 import json
+import hashlib
 import sys
 import subprocess
 import tarfile
@@ -25,6 +26,9 @@ def main():
     parser.add_argument(
         "--output", type=Path, default=ROOT / "artifacts/firefly-runtime.tar"
     )
+    parser.add_argument("--stockfish-dir", type=Path, default=ROOT / "artifacts/stockfish/aarch64")
+    parser.add_argument("--reuse-artifacts", action="store_true",
+                        help="Explicit overlay: reuse previously verified YOLO artifacts on the board")
     args = parser.parse_args()
     files = [
         *(p for p in ROOT.glob("vision/*.py") if p.name != "evaluate.py"),
@@ -32,6 +36,11 @@ def main():
         ROOT / "convert/common.py",
         ROOT / "web/pyproject.toml",
         ROOT / "web/uv.lock",
+        ROOT / "tools/install_firefly.sh",
+        ROOT / "tools/run_firefly.sh",
+        ROOT / "README.md",
+        ROOT / "web/frontend/public/pieces/cburnett/LICENSE.md",
+        *ROOT.glob("docs/*.md"),
     ]
     dist = ROOT / "web/frontend/dist"
     if not (dist / "index.html").exists():
@@ -56,9 +65,18 @@ def main():
         text=True,
     ).stdout.encode()
     reports = []
+    stockfish_manifest = json.loads((args.stockfish_dir / "manifest.json").read_text())
+    if stockfish_manifest["architecture"] != "aarch64":
+        parser.error("Firefly requires the aarch64 Stockfish distribution")
+    for filename, key in [("stockfish", "binary_sha256"), ("upstream.tar.gz", "archive_sha256")]:
+        digest = hashlib.sha256((args.stockfish_dir / filename).read_bytes()).hexdigest()
+        if digest != stockfish_manifest[key]:
+            parser.error(f"Stockfish checksum mismatch: {filename}")
     keys = [key for profile in args.profiles for key in
             (args.models_3d if profile == "3d" else PROFILES[profile])]
     for key in dict.fromkeys(keys):
+        if args.reuse_artifacts:
+            continue
         directory = ROOT / "convert/artifacts" / key
         files.append(directory / "model.json")
         for backend in args.backends:
@@ -88,11 +106,22 @@ def main():
         archive.addfile(info, io.BytesIO(requirements))
         for file in files:
             archive.add(file, arcname=file.relative_to(ROOT))
+        for filename in ("stockfish", "manifest.json", "upstream.tar.gz"):
+            archive.add(args.stockfish_dir / filename, arcname=f"stockfish/{filename}")
         for path, report in reports:
             data = json.dumps(report, indent=2).encode()
             info = tarfile.TarInfo(path.relative_to(ROOT).as_posix())
             info.size = len(data)
             archive.addfile(info, io.BytesIO(data))
+        package = json.dumps({"stockfish": stockfish_manifest,
+                              "external_yolo_artifacts_required": args.reuse_artifacts,
+                              "profiles": args.profiles, "default_3d_model": args.models_3d[0],
+                              "models": list(dict.fromkeys(keys)), "backends": args.backends}, indent=2).encode()
+        info = tarfile.TarInfo("PACKAGE.json")
+        info.size = len(package)
+        archive.addfile(info, io.BytesIO(package))
+    checksum = hashlib.sha256(args.output.read_bytes()).hexdigest()
+    args.output.with_suffix(args.output.suffix + ".sha256").write_text(f"{checksum}  {args.output.name}\n")
     print(
         f"{args.output}: {args.output.stat().st_size / 1024**2:.2f} MiB; profiles={args.profiles}; backends={args.backends}"
     )

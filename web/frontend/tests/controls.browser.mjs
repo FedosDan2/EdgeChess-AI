@@ -6,7 +6,8 @@ import * as THREE from 'three';
  try {
  const page=await browser.newPage({viewport:{width:1440,height:1100}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto(process.env.EDGECHESS_WEB_URL || 'http://127.0.0.1:8000');await page.waitForLoadState('networkidle');
- await page.click('#pause');await page.selectOption('#source-mode','3d');await page.uncheck('#boxes');
+  await page.click('#pause');await page.selectOption('#source-mode','3d');await page.uncheck('#boxes');
+ await page.locator('#viewport').scrollIntoViewIfNeeded();
  // Let resize/render and outstanding stream work settle before the pixel baseline.
  await page.waitForTimeout(350);
  const rect=await page.locator('#viewport > canvas').first().boundingBox();
@@ -27,6 +28,7 @@ import * as THREE from 'three';
  assert.equal(await page.locator('#turn').textContent(),'Ход белых');
  const fen3d=await page.locator('#fen').inputValue();
  await page.click('#reset');await page.selectOption('#source-mode','2d');await page.waitForTimeout(500);
+ await page.locator('#viewport').scrollIntoViewIfNeeded();
  const r2=await canvas.boundingBox();const camera2=new THREE.PerspectiveCamera(37,r2.width/r2.height,.1,100);camera2.up.set(0,0,-1);camera2.position.set(0,16,.001);camera2.lookAt(0,.2,0);camera2.updateMatrixWorld();
  for(const square of ['e2','e4']) {const p=new THREE.Vector3(square.charCodeAt(0)-97-3.5,.035,4.5-Number(square[1])).project(camera2);await page.mouse.click(r2.x+(p.x+1)*r2.width/2,r2.y+(1-p.y)*r2.height/2);}
  assert.equal(await page.locator('#turn').textContent(),'Ход чёрных');assert.deepEqual(errors,[]);
