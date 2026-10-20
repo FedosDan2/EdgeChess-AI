@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { Chess, type Square, type PieceSymbol, type Color } from "chess.js";
 
 // Procedural solid pieces: no remote assets or runtime CDN dependencies.
@@ -134,6 +135,10 @@ export class BoardScene {
   private down = { x: 0, y: 0 };
   private tiles: THREE.Object3D[] = [];
   private adviceFen: string | null = null;
+  private captureScene: THREE.WebGLRenderTarget | null = null;
+  private captureOutput: THREE.WebGLRenderTarget | null = null;
+  private capturePass: OutputPass | null = null;
+  private capturePixels = new Uint8Array(0);
   onChange: () => void = () => {};
   onMessage: (message: string) => void = () => {};
   promotion: PieceSymbol = "q";
@@ -441,18 +446,52 @@ export class BoardScene {
     this.renderer.render(this.scene, this.camera);
   }
   async snapshot() {
-    // Neither legal-move hints nor Stockfish highlights enter YOLO's input.
+    // Never render a hint-free frame into the visible canvas. Restore scene
+    // state synchronously, before bitmap decoding or the next animation frame.
+    const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+    if (!size.x || !size.y) throw new Error("Cannot capture an empty viewport");
+    // The encoder sends 960x720; do not allocate display-resolution HDR/MSAA
+    // buffers on high-DPI monitors just to downscale them immediately afterward.
+    const scale = Math.min(1, 960 / size.x, 720 / size.y);
+    const width = Math.max(1, Math.round(size.x * scale));
+    const height = Math.max(1, Math.round(size.y * scale));
+    if (!this.captureScene) {
+      this.captureScene = new THREE.WebGLRenderTarget(width, height, {
+        type: THREE.HalfFloatType,
+        samples: Math.min(4, this.renderer.capabilities.maxSamples),
+      });
+      this.captureOutput = new THREE.WebGLRenderTarget(width, height, { depthBuffer: false });
+      this.capturePass = new OutputPass();
+    }
+    const output = this.captureOutput!;
+    this.captureScene.setSize(width, height);
+    output.setSize(width, height);
+    if (this.capturePixels.length !== width * height * 4) {
+      this.capturePixels = new Uint8Array(width * height * 4);
+    }
+    const target = this.renderer.getRenderTarget();
     const markersVisible = this.markers.visible, adviceVisible = this.advice.visible;
     try {
       this.markers.visible = this.advice.visible = false;
+      this.renderer.setRenderTarget(this.captureScene);
       this.renderer.render(this.scene, this.camera);
-      return await createImageBitmap(this.renderer.domElement);
+      // Render targets are linear HDR: apply the display's tone mapping and
+      // sRGB conversion explicitly before reading 8-bit pixels for YOLO.
+      this.capturePass!.render(this.renderer, output, this.captureScene, 0, false);
+      this.renderer.readRenderTargetPixels(output, 0, 0, width, height, this.capturePixels);
     } finally {
       this.markers.visible = markersVisible;
       this.advice.visible = adviceVisible;
-      if ((markersVisible && this.markers.children.length) || (adviceVisible && this.advice.children.length)) {
-        this.renderer.render(this.scene, this.camera);
-      }
+      this.renderer.setRenderTarget(target);
     }
+    // WebGL's origin is bottom-left; ImageData's is top-left. Each snapshot
+    // owns its pixels, so simultaneous stream/export requests cannot overwrite it.
+    const image = new ImageData(width, height);
+    const rowBytes = width * 4;
+    for (let row = 0; row < height; row++) {
+      const offset = (height - row - 1) * rowBytes;
+      image.data.set(this.capturePixels.subarray(offset, offset + rowBytes), row * rowBytes);
+    }
+    return createImageBitmap(image);
   }
 }
