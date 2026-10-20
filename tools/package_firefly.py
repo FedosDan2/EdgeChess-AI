@@ -27,6 +27,7 @@ def main():
         "--output", type=Path, default=ROOT / "artifacts/firefly-runtime.tar"
     )
     parser.add_argument("--stockfish-dir", type=Path, default=ROOT / "artifacts/stockfish/aarch64")
+    parser.add_argument("--with-tts", action="store_true", help="Include locally imported Piper voice and TTS dependencies")
     parser.add_argument("--reuse-artifacts", action="store_true",
                         help="Explicit overlay: reuse previously verified YOLO artifacts on the board")
     args = parser.parse_args()
@@ -38,6 +39,7 @@ def main():
         ROOT / "web/uv.lock",
         ROOT / "tools/install_firefly.sh",
         ROOT / "tools/run_firefly.sh",
+        ROOT / "tools/import_tts.py",
         ROOT / "README.md",
         ROOT / "web/frontend/public/pieces/cburnett/LICENSE.md",
         *ROOT.glob("docs/*.md"),
@@ -46,6 +48,13 @@ def main():
     if not (dist / "index.html").exists():
         parser.error("Build web/frontend first")
     files.extend(p for p in dist.rglob("*") if p.is_file())
+    if args.with_tts:
+        from tools.import_tts import FILES
+        for name, digest in FILES.items():
+            path = ROOT / "artifacts/tts" / name
+            if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+                parser.error(f"Import the supplied TTS voice first: {path}")
+            files.append(path)
     requirements = subprocess.run(
         [
             "uv",
@@ -56,6 +65,7 @@ def main():
             "--no-dev",
             "--extra",
             "rknn",
+            *(["--extra", "tts"] if args.with_tts else []),
             "--no-hashes",
             "--no-emit-project",
             "--no-annotate",
@@ -113,7 +123,7 @@ def main():
             info = tarfile.TarInfo(path.relative_to(ROOT).as_posix())
             info.size = len(data)
             archive.addfile(info, io.BytesIO(data))
-        package = json.dumps({"stockfish": stockfish_manifest,
+        package = json.dumps({"stockfish": stockfish_manifest, "tts": args.with_tts,
                               "external_yolo_artifacts_required": args.reuse_artifacts,
                               "profiles": args.profiles, "default_3d_model": args.models_3d[0],
                               "models": list(dict.fromkeys(keys)), "backends": args.backends}, indent=2).encode()

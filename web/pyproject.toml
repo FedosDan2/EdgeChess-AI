@@ -16,6 +16,9 @@ dependencies = [
 
 [project.optional-dependencies]
 rknn = ["rknn-toolkit-lite2==2.3.2; platform_machine == 'aarch64'"]
+tts = [
+    "piper-tts==1.3.0",
+]
 
 [dependency-groups]
 dev = ["pytest==8.3.5", "httpx==0.28.1"]

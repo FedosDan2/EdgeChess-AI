@@ -22,14 +22,27 @@ try {
     input_size:640,warmup_runs:5,models:[{key:'chess3d_m',conversion_verified:true}],
     model_choices:{chess3d_m:'YOLOv8m'},stockfish:{available:true}};
   let game, feed = true, frames = 0;
+  let speechState = 'playing', speechStops = 0;
+  const adviceRequests = [];
   let observation = {placement:initial,status:'ok',warnings:[]};
   await page.route('**/api/health',route=>route.fulfill({json:{status:'ready',...configuration}}));
   await page.route('**/api/game',route=>{
     game = route.request().postDataJSON();
     return route.fulfill({json:{...game,plies:game.moves.length,fen:game.initial_fen}});
   });
-  await page.route('**/api/advice',route=>route.fulfill({json:{move_san:'e4',move_uci:'e2e4',
-    engine:'Stockfish fixture',elapsed_ms:1000,source:'history_verified_by_yolo'}}));
+  await page.route('**/api/advice',route=>{
+    const request = route.request().postDataJSON();
+    adviceRequests.push(request);
+    return route.fulfill({json:{move_san:'e4',move_uci:'e2e4',
+      speech:{state:request.speak ? 'queued' : 'disabled'},
+      engine:'Stockfish fixture',elapsed_ms:1000,source:'history_verified_by_yolo'}});
+  });
+  await page.route('**/api/speech',route=>route.fulfill({json:{state:speechState,
+    game_id:game.game_id,revision:game.revision}}));
+  await page.route('**/api/speech/stop',route=>{
+    ++speechStops;
+    return route.fulfill({json:{state:'idle'}});
+  });
   await page.routeWebSocket('**/api/stream?*',ws=>{
     ws.send(JSON.stringify({type:'ready',...configuration}));
     ws.onMessage(message=>{
@@ -60,6 +73,28 @@ try {
   await page.waitForFunction(() => !document.querySelector('#ask-advice').disabled);
   await page.locator('#ask-advice').dispatchEvent('click');
   await page.waitForFunction(() => document.querySelector('#advice-result').textContent.includes('Ход не применён'));
+  assert.equal(adviceRequests.length, 1);
+  assert.equal(adviceRequests[0].speak, true);
+  await page.waitForFunction(() => document.querySelector('#speech-status').textContent.includes('Звук на аудиовыходе сервера'));
+  const stopped = page.waitForResponse(response => response.url().endsWith('/api/speech/stop'));
+  await page.uncheck('#advisor-speech');
+  await stopped;
+  await page.waitForFunction(() => document.querySelector('#speech-status').textContent === '');
+  assert(speechStops > 0, 'Disabling speech must stop server playback');
+  await page.locator('#ask-advice').dispatchEvent('click');
+  await page.waitForFunction(() => document.querySelector('#advice-result').textContent.includes('Ход не применён'));
+  assert.equal(adviceRequests.length, 2);
+  assert.equal(adviceRequests[1].speak, false);
+  await page.check('#advisor-speech');
+  speechState = 'error';
+  await page.locator('#ask-advice').dispatchEvent('click');
+  await page.waitForFunction(() => document.querySelector('#speech-status').textContent.includes('Ошибка озвучки'));
+  assert((await page.locator('#advice-result').textContent()).includes('e2e4'));
+  await page.setViewportSize({width:1366,height:768});
+  await page.evaluate(() => window.scrollTo(0,0));
+  assert(await page.locator('#stockfish-card').evaluate(element => element.getBoundingClientRect().bottom <= 768),
+    'Summary with audio status must fit the first desktop screen');
+  await page.uncheck('#advisor-speech');
   const artifacts = fileURLToPath(new URL('../../../artifacts/', import.meta.url));
   await mkdir(artifacts,{recursive:true});
   feed = false;
@@ -113,5 +148,5 @@ try {
   await history.locator('summary').click();
   assert(await page.locator('#sync-game').isVisible());
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({fixtures:true,responsive:checked,recognitionStates:true,detailsAccessible:true,errors}));
+  console.log(JSON.stringify({fixtures:true,responsive:checked,recognitionStates:true,speechControls:true,detailsAccessible:true,errors}));
 } finally { await browser.close(); await server.close(); }
