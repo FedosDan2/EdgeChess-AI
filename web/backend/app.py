@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .inference import Detector
 from .advisor import AdviceRequest, GameStore, GameUpdate, StockfishAdvisor
+from .speech import SpeechService
 
 MAX_FRAME_BYTES = 2 * 1024 * 1024
 MAX_IMAGE_BYTES = 16 * 1024 * 1024
@@ -37,7 +38,7 @@ class LatestFrame:
         self.queue.put_nowait(frame)
 
 
-def create_app(detector_factory=Detector, advisor_factory=StockfishAdvisor):
+def create_app(detector_factory=Detector, advisor_factory=StockfishAdvisor, speech_factory=SpeechService):
     @asynccontextmanager
     async def lifespan(app):
         executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="inference")
@@ -48,10 +49,12 @@ def create_app(detector_factory=Detector, advisor_factory=StockfishAdvisor):
         app.state.advice_busy = False
         advice_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stockfish")
         app.state.advice_executor = advice_executor
+        app.state.speech = speech_factory()
         try:
             app.state.detector = await asyncio.get_running_loop().run_in_executor(executor, detector_factory)
             yield
         finally:
+            await app.state.speech.close()
             await asyncio.get_running_loop().run_in_executor(advice_executor, app.state.advisor.close)
             advice_executor.shutdown(wait=True, cancel_futures=True)
             if hasattr(app.state, "detector") and hasattr(app.state.detector, "close"):
@@ -63,12 +66,25 @@ def create_app(detector_factory=Detector, advisor_factory=StockfishAdvisor):
     @app.get("/api/health")
     def health():
         return {"status": "ready", **app.state.detector.describe(),
-                "stockfish": app.state.advisor.describe()}
+                "stockfish": app.state.advisor.describe(), "speech": app.state.speech.describe()}
+
+    @app.get("/api/speech")
+    async def speech_status():
+        return app.state.speech.describe()
+
+    @app.post("/api/speech/stop")
+    async def speech_stop(request: AdviceRequest):
+        app.state.speech.cancel(request.game_id, request.revision)
+        return app.state.speech.describe()
 
     @app.post("/api/game")
     async def sync_game(update: GameUpdate):
         try:
-            return app.state.games.sync(update)
+            previous = app.state.games.games.get(update.game_id)
+            result = app.state.games.sync(update)
+            if previous is None or previous.update != update:
+                app.state.speech.cancel(update.game_id)
+            return result
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 
@@ -81,6 +97,9 @@ def create_app(detector_factory=Detector, advisor_factory=StockfishAdvisor):
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
         app.state.advice_busy = True
+        app.state.speech.cancel()
+        app.state.speech.owner = (request.game_id, request.revision)
+        speech_generation = app.state.speech.generation
         try:
             result = await asyncio.get_running_loop().run_in_executor(
                 app.state.advice_executor, app.state.advisor.best_move, board, request.game_id)
@@ -89,7 +108,20 @@ def create_app(detector_factory=Detector, advisor_factory=StockfishAdvisor):
                 app.state.games.snapshot(request)
             except ValueError as exc:
                 raise HTTPException(409, str(exc)) from exc
-            return {**result, "game_id": request.game_id, "revision": request.revision,
+            speech = {"state": "disabled"}
+            if request.speak and speech_generation == app.state.speech.generation:
+                def valid():
+                    try:
+                        return app.state.games.snapshot(request).fen() == board.fen()
+                    except ValueError:
+                        return False
+                try:
+                    speech = app.state.speech.submit(board, result["move_uci"], request.game_id,
+                                                     request.revision, valid)
+                except Exception:
+                    logging.exception("Cannot schedule speech")
+                    speech = {"state": "error"}
+            return {**result, "speech": speech, "game_id": request.game_id, "revision": request.revision,
                     "source": "history_verified_by_yolo" if request.require_vision else "history_only"}
         except HTTPException:
             raise
@@ -118,6 +150,7 @@ def create_app(detector_factory=Detector, advisor_factory=StockfishAdvisor):
         orientation = ws.query_params.get("orientation", "white")
         game_id = ws.query_params.get("game_id")
         app.state.games.clear_vision(game_id)
+        app.state.speech.cancel(game_id)
 
         async def send(message):
             async with send_lock:
@@ -137,10 +170,12 @@ def create_app(detector_factory=Detector, advisor_factory=StockfishAdvisor):
                     result = await asyncio.get_running_loop().run_in_executor(app.state.executor, infer)
                 except Exception:
                     app.state.games.clear_vision(game_id)
+                    app.state.speech.revalidate()
                     logging.exception("Frame inference failed")
                     await send({"type": "frame_error", "id": frame_id, "message": "Cannot process frame"})
                     continue
                 app.state.games.observe(game_id, game_revision, result, captured_at)
+                app.state.speech.revalidate()
                 result.update(game_id=game_id, game_revision=game_revision)
                 processed += 1
                 await send({"type": "result", "id": frame_id, **result,
@@ -206,6 +241,7 @@ def create_app(detector_factory=Detector, advisor_factory=StockfishAdvisor):
                     await asyncio.get_running_loop().run_in_executor(app.state.executor, lambda: None)
                 finally:
                     app.state.games.clear_vision(game_id)
+                    app.state.speech.cancel(game_id)
                     app.state.busy = False
 
     @app.post("/api/analyze")

@@ -38,6 +38,8 @@ export const layout = `
         <div class="card-title"><h2>Stockfish</h2><label class="side-choice">За <select id="advisor-side" aria-label="Сторона помощника"><option value="w">Белых</option><option value="b">Чёрных</option></select></label></div>
         <button id="ask-advice" disabled>Подсказать ход</button>
         <label class="checkbox advisor-check"><input id="advisor-vision" type="checkbox" checked><span>Подтверждать позицию через YOLO</span></label>
+        <label class="checkbox advisor-check"><input id="advisor-speech" type="checkbox" checked><span>Озвучивать на Firefly / сервере</span></label>
+        <p id="speech-status" class="note" role="status"></p>
         <p id="advice-status" role="status">Синхронизация истории…</p>
         <p id="advice-result" role="status"></p>
         <div class="move-key"><span><i class="from-square"></i> Откуда</span><span><i class="to-square"></i> Куда</span><span>Ход не выполняется</span></div>

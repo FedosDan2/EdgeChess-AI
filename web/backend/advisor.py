@@ -34,6 +34,7 @@ class AdviceRequest(BaseModel):
     game_id: str = Field(min_length=1, max_length=64)
     revision: int = Field(ge=0)
     require_vision: bool = True
+    speak: bool = False
 
 
 @dataclass

@@ -27,6 +27,17 @@ if [[ -e "$CONDA_PREFIX/bin/stockfish" ]] && ! cmp -s stockfish/stockfish "$COND
   exit 1
 fi
 python -m pip install -r web/requirements-firefly.txt
+python - <<'PY'
+import hashlib, json, shutil
+from pathlib import Path
+if json.loads(Path('PACKAGE.json').read_text()).get('tts'):
+    from piper import PiperVoice
+    from tools.import_tts import FILES
+    for name, digest in FILES.items():
+        assert hashlib.sha256(Path('artifacts/tts', name).read_bytes()).hexdigest() == digest, name
+    if not shutil.which('aplay'):
+        print('TTS needs aplay: install alsa-utils inside this conda environment; see docs/tts.md')
+PY
 install -m 755 stockfish/stockfish "$CONDA_PREFIX/bin/stockfish"
 cp stockfish/manifest.json stockfish/upstream.tar.gz "$CONDA_PREFIX/share/edgechess-stockfish/"
 python - <<'PY'

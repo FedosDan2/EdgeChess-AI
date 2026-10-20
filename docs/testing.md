@@ -49,4 +49,13 @@ STOCKFISH_PATH="$PWD/artifacts/stockfish/x86_64/stockfish" \
 
 Бенчмарк измеряет preprocessing, модель, NMS и геометрию, без сети/JPEG/отрисовки.
 Эксперимент запускает CPU YOLO и Stockfish совместно; JSON сохраняется в `artifacts/`.
+Тесты `web/tests/test_speech.py` проверяют текст ходов, отмену синтеза/проигрывания,
+ограниченную очередь и сохранение подсказки при ошибке аудио. После импорта
+голоса и установки extra `tts` запуск с `STOCKFISH_PATH` также проверяет
+настоящие Stockfish + Piper и структуру полученного WAV (без физического звука).
+
+```bash
+STOCKFISH_PATH=/путь/к/stockfish uv run --project web --extra tts --locked pytest web/tests/test_speech.py -q
+```
+
 Эти измерения не заменяют проверку задержек, RAM и температуры на Firefly.
