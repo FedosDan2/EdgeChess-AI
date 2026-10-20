@@ -1,4 +1,4 @@
-"""Offline Piper speech, adapted from edge/chess_tts.py in the supplied archive.
+"""Offline Piper speech for chess recommendations.
 
 Only one synthesis and one replaceable pending recommendation. All admission and
 validity checks run on the API event loop; native ONNX runs on a separate worker.

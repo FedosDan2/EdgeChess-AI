@@ -12,12 +12,18 @@ YOLO работает на NPU; Piper ONNX и Stockfish — на CPU. Конве
 
 ## Подготовка
 
-Локально импортируйте модель из предоставленного архива (сам архив не меняется):
+Загрузите голос Ирины из публичного репозитория Piper:
 
 ```bash
-python3 tools/import_tts.py 'edge (1).zip'
+python3 tools/import_tts.py
 uv sync --project web --extra tts
 ```
+
+Скрипт загружает ONNX и конфигурацию в `artifacts/tts` из закреплённой ревизии
+`rhasspy/piper-voices` на Hugging Face и проверяет SHA256. Нужен интернет только
+для первой загрузки; существующие корректные файлы используются повторно.
+Синтез речи работает офлайн. Другой каталог можно задать через `--output`;
+для запуска с ним укажите `EDGECHESS_TTS_MODEL`.
 
 При локальном запуске также укажите extra, например:
 
@@ -55,7 +61,6 @@ export EDGECHESS_AUDIO_DEVICE=default
 
 ## Источник и лицензии
 
-Код адаптирован из `edge/chess_tts.py` предоставленного пользователем архива.
 Используется Piper 1.3.0 (GPL-3.0-or-later), совместимый с генератором AudioChunk.
 Голос: `ru_RU-irina-medium`, 22050 Hz, около 63 МБ.
 [Карточка голоса](https://huggingface.co/rhasspy/piper-voices/blob/main/ru/ru_RU/irina/medium/MODEL_CARD)

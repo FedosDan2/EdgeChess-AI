@@ -53,7 +53,7 @@ def main():
         for name, digest in FILES.items():
             path = ROOT / "artifacts/tts" / name
             if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
-                parser.error(f"Import the supplied TTS voice first: {path}")
+                parser.error(f"Run python3 tools/import_tts.py to prepare the TTS voice: {path}")
             files.append(path)
     requirements = subprocess.run(
         [
