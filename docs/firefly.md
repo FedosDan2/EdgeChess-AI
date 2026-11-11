@@ -1,92 +1,102 @@
-# Развёртывание на Firefly
+# Firefly: развёртывание с нуля
 
-Для голосовых подсказок см. [Piper TTS](tts.md): импорт модели, флаг упаковки
-`--with-tts`, установка aplay в conda и выбор аналогового аудиовыхода.
+## Что взять на сдачу
 
-## Требования
+Из `artifacts/`: **`edgechess-firefly-latest.tar.gz` и одноимённый `.sha256`**.
+Архив самодостаточный: Python 3.10.21 ARM64, закреплённые Python-зависимости,
+YOLOv8m RKNN INT8/FP16, интерфейс, Stockfish 19 с исходниками/GPL, голос Piper.
+Git, Node.js, conda, pip и интернет на плате для установки приложения не нужны.
+Архив не содержит ОС и драйвер ядра NPU. Обучение и датасеты в него не входят.
 
-- Linux ARM64, glibc ≥ 2.35 для официального Stockfish 19.
-- Conda с Python 3.10–3.12, доступ к Python-индексу для установки зависимостей.
-- RKNN Lite2 2.3.2 и совместимые драйвер NPU / `librknnrt`.
-- Свободное место для архива, распакованного приложения и conda-окружения.
+## Требования к новой плате
 
-Версию glibc проверьте командой `getconf GNU_LIBC_VERSION`. Для более старой
-ОС требуется совместимая сборка Stockfish из приложенных исходников;
-conda не заменяет системную glibc.
+- Firefly **RK3588S/RK3588**, Linux ARM64, **glibc ≥ 2.35** (Ubuntu 22.04/24.04).
+- Рабочий драйвер Rockchip NPU и совместимая с RKNN Lite2 **2.3.2**
+  `librknnrt.so` — заранее подготовленный образ Firefly/Rockchip. Проверка ниже
+  реально загружает модель на NPU; запуск только на CPU не подменяет её.
+- ALSA и `aplay` (`alsa-utils`), доступ пользователя к аудио/NPU, подключённые
+  активные колонки/наушники. Если `aplay` отсутствует, администратор устанавливает
+  `alsa-utils` заранее; приложение системные пакеты и настройки не меняет.
+- **Не менее 2 ГБ свободного места** под архив, распаковку и запас; около 2 ГБ
+  доступной RAM. Сеть между платой и компьютером с браузером, SSH-доступ.
 
-## Сборка пакета
+## Установка и запуск
 
-На локальной машине, из корня репозитория:
+На компьютере, из корня репозитория; замените `USER`, `IP` и разрешённый каталог:
 
 ```bash
-python3 tools/download_stockfish.py --arch aarch64
+scp artifacts/edgechess-firefly-latest.tar.gz* USER@IP:/РАЗРЕШЁННЫЙ/КАТАЛОГ/
+ssh USER@IP
+```
+
+На плате (распаковывайте **в новый каталог**, не поверх работающей версии):
+
+```bash
+cd /РАЗРЕШЁННЫЙ/КАТАЛОГ
+uname -m                       # aarch64
+getconf GNU_LIBC_VERSION        # glibc 2.35 или новее
+df -h .
+sha256sum -c edgechess-firefly-latest.tar.gz.sha256
+mkdir edgechess
+tar -xzf edgechess-firefly-latest.tar.gz -C edgechess
+cd edgechess
+bash edgechess.sh check --audio # файлы → NPU → Stockfish → Piper → звук
+bash edgechess.sh start         # фон, переживает закрытие SSH; НЕ перезагрузку
+bash edgechess.sh status
+```
+
+На компьютере откройте туннель (оставьте команду работающей):
+
+```bash
+ssh -N -L 18000:127.0.0.1:8000 USER@IP
+```
+
+Откройте **http://localhost:18000**. В интерфейсе: `3D`, `YOLOv8m`, `RKNN INT8`.
+Дождитесь подтверждения начальной позиции и нажмите «Подсказать ход».
+Ход подсветится, но не выполнится; голос звучит **на плате**, не в браузере.
+В `/api/health`: `provider: RKNN NPU`, `backend: rknn_int8`,
+`stockfish.available: true`, `speech.available: true`.
+
+## Управление и неполадки
+
+```bash
+bash edgechess.sh stop
+bash edgechess.sh start
+tail -n 80 web-ui.log
+```
+
+- Для FP16: после остановки `EDGECHESS_BACKEND=rknn_fp16 bash edgechess.sh start`.
+- Другой порт: `EDGECHESS_PORT=8001 bash edgechess.sh start`; тот же параметр
+  указывайте для `status`, порт туннеля справа тоже замените на `8001`.
+- Прямой доступ: `EDGECHESS_BIND_HOST=IP_ПЛАТЫ bash edgechess.sh start`.
+  По умолчанию только localhost; **аутентификации нет**, не публикуйте в интернете.
+- Ошибка NPU: проверить образ ОС, драйвер, `librknnrt.so`, права доступа.
+  Автоматического перехода на CPU нет. Статическое предупреждение
+  `Query dynamic range failed` само по себе не означает ошибку инференса.
+- Нет звука: `aplay -l`, `aplay -L`, проверить колонки, громкость/mute в микшере.
+  Для ES8388 автоматически используется локальный `audio.conf`: стерео 48 кГц,
+  амплитуда 20%; системный микшер не меняется. На другой плате задайте, например,
+  `EDGECHESS_AUDIO_DEVICE=default bash edgechess.sh start` после остановки.
+  Успех `aplay` ещё не доказывает физическую слышимость. Подробнее: [tts.md](tts.md).
+- Сервер занят: закрыть вкладки с распознаванием; допускается один поток.
+- После перезагрузки снова выполните `bash edgechess.sh start` из этой папки.
+
+Всё приложение пишет только внутри своей папки. Старую установку/архив можно
+удалить после проверки новой; `stockfish/upstream.tar.gz` внутри приложения
+сохраните — это исходники и лицензии. Голос Piper имеет неуточнённые права на
+исходный датасет: архив не следует публично распространять без проверки лицензии.
+
+## Пересборка на компьютере
+
+Нужны Linux x86_64, `uv`, Python 3, Node.js 22/npm и интернет. Подготовленные
+модели должны быть в `convert/artifacts/chess3d_m/` ([models.md](models.md)).
+
+```bash
 npm --prefix web/frontend ci
 npm --prefix web/frontend run build
-python3 tools/package_firefly.py --profiles 3d --3d-models chess3d_m \
-  --backends rknn_int8 rknn_fp16 --output artifacts/firefly-stockfish.tar
+python3 tools/package_firefly_release.py
 ```
 
-Требуются [подготовленные RKNN и metadata](models.md). Архив включает
-runtime, frontend, ARM64 Stockfish, исходники/GPL и зависимости из `web/uv.lock`.
-Рядом записывается файл `.sha256`.
-
-Для обновления с сохранением моделей существующей установки:
-
-```bash
-python3 tools/package_firefly.py --profiles 3d --3d-models chess3d_m \
-  --backends rknn_int8 rknn_fp16 --reuse-artifacts \
-  --output artifacts/firefly-stockfish-overlay.tar
-```
-
-Пакет `overlay` **не содержит YOLO-моделей**. Профили, модели и исполнители
-перечислены в `PACKAGE.json`; `external_yolo_artifacts_required: true`
-означает, что их нужно перенести из существующей установки.
-
-## Установка
-
-Скопируйте архив и `.sha256` на плату. Задайте абсолютные пути:
-`APP_DIR` — новый каталог приложения, `ARCHIVE` — архив.
-
-```bash
-cd "$(dirname "$ARCHIVE")"
-sha256sum -c "$(basename "$ARCHIVE").sha256"
-mkdir -p "$APP_DIR"
-tar -xf "$ARCHIVE" -C "$APP_DIR"
-```
-
-Только для `overlay`: задайте `OLD_APP_DIR` и перенесите модели:
-
-```bash
-mkdir -p "$APP_DIR/convert/artifacts"
-cp -a "$OLD_APP_DIR/convert/artifacts/chess3d_m" "$APP_DIR/convert/artifacts/"
-```
-
-Установите зависимости в отдельную conda:
-
-```bash
-conda create --prefix "$APP_DIR/.conda" python=3.10 pip -y
-conda activate "$APP_DIR/.conda"
-cd "$APP_DIR"
-bash tools/install_firefly.sh
-bash tools/run_firefly.sh
-```
-
-Установщик проверяет архитектуру, glibc, SHA256 и UCI-запуск Stockfish.
-Python-пакеты и бинарник устанавливаются в активную conda. Исходники и GPL
-сохраняются в `$CONDA_PREFIX/share/edgechess-stockfish`.
-
-## Подключение и проверка
-
-Сервер по умолчанию слушает `127.0.0.1:8000`. На компьютере с браузером:
-
-```bash
-ssh -N -L 18000:127.0.0.1:8000 "$EDGECHESS_SSH_ALIAS"
-```
-
-Откройте `http://localhost:18000`. В `/api/health` проверьте
-`provider: RKNN NPU`, `backend: rknn_int8` и `stockfish.available: true`.
-Затем проверьте поток распознавания и подсказку по кнопке.
-
-Для запуска с FP16: `EDGECHESS_BACKEND=rknn_fp16 bash tools/run_firefly.sh`.
-Настройки сети: `EDGECHESS_BIND_HOST`, `EDGECHESS_PORT`. Публичный доступ
-без внешней аутентификации не предусмотрен.
+Сборщик сам скачивает Python, ARM64-зависимости, Stockfish и голос; входные
+загрузки кэшируются в `.cache/firefly-release/`. В `artifacts/` создаются только
+актуальный архив и checksum. На новую плату исходный репозиторий не нужен.

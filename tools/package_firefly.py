@@ -28,6 +28,7 @@ def main():
     )
     parser.add_argument("--stockfish-dir", type=Path, default=ROOT / "artifacts/stockfish/aarch64")
     parser.add_argument("--with-tts", action="store_true", help="Include locally imported Piper voice and TTS dependencies")
+    parser.add_argument("--tts-dir", type=Path, default=ROOT / "artifacts/tts")
     parser.add_argument("--reuse-artifacts", action="store_true",
                         help="Explicit overlay: reuse previously verified YOLO artifacts on the board")
     args = parser.parse_args()
@@ -51,7 +52,7 @@ def main():
     if args.with_tts:
         from tools.import_tts import FILES
         for name, digest in FILES.items():
-            path = ROOT / "artifacts/tts" / name
+            path = args.tts_dir / name
             if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
                 parser.error(f"Run python3 tools/import_tts.py to prepare the TTS voice: {path}")
             files.append(path)
@@ -115,7 +116,8 @@ def main():
         info.size = len(requirements)
         archive.addfile(info, io.BytesIO(requirements))
         for file in files:
-            archive.add(file, arcname=file.relative_to(ROOT))
+            name = Path("artifacts/tts") / file.name if file.parent == args.tts_dir else file.relative_to(ROOT)
+            archive.add(file, arcname=name)
         for filename in ("stockfish", "manifest.json", "upstream.tar.gz"):
             archive.add(args.stockfish_dir / filename, arcname=f"stockfish/{filename}")
         for path, report in reports:

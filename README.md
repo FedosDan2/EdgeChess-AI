@@ -7,7 +7,7 @@ Stockfish по запросу. ONNX выполняется на CPU, RKNN — н
 ## Документация
 
 - [Локальный запуск и управление](docs/local.md)
-- [Установка на Firefly](docs/firefly.md)
+- [Firefly с нуля: готовый офлайн-архив и запуск](docs/firefly.md)
 - [Stockfish и история партии](docs/stockfish.md)
 - [Озвучка Piper TTS](docs/tts.md)
 - [Конвертация моделей](docs/models.md)
